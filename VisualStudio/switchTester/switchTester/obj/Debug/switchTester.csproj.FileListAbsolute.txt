@@ -1,0 +1,21 @@
+C:\Users\lucas\Documents\SwitchTester\rocketThingy\rocketThingy\obj\Debug\switchTester.csproj.AssemblyReference.cache
+C:\Users\lucas\Documents\SwitchTester\rocketThingy\rocketThingy\obj\Debug\rocketThingy.exe.config
+C:\Users\lucas\Documents\SwitchTester\rocketThingy\rocketThingy\obj\Debug\switchTester.Form1.resources
+C:\Users\lucas\Documents\SwitchTester\rocketThingy\rocketThingy\obj\Debug\rocketThingy.Properties.Resources.resources
+C:\Users\lucas\Documents\SwitchTester\rocketThingy\rocketThingy\obj\Debug\switchTester.csproj.GenerateResource.cache
+C:\Users\lucas\Documents\SwitchTester\rocketThingy\rocketThingy\obj\Debug\switchTester.csproj.CoreCompileInputs.cache
+C:\Users\lucas\Documents\SwitchTester\rocketThingy\rocketThingy\obj\Debug\rocketThingy.exe
+C:\Users\lucas\Documents\SwitchTester\rocketThingy\rocketThingy\obj\Debug\rocketThingy.pdb
+C:\Users\lucas\Documents\SwitchTester\rocketThingy\rocketThingy\bin\Debug\rocketThingy.exe.config
+C:\Users\lucas\Documents\SwitchTester\rocketThingy\rocketThingy\bin\Debug\rocketThingy.exe
+C:\Users\lucas\Documents\SwitchTester\rocketThingy\rocketThingy\bin\Debug\rocketThingy.pdb
+C:\Users\lucas\Documents\SwitchTester\rocketThingy - Copy\switchTester\bin\Debug\switchTester.exe.config
+C:\Users\lucas\Documents\SwitchTester\rocketThingy - Copy\switchTester\bin\Debug\switchTester.exe
+C:\Users\lucas\Documents\SwitchTester\rocketThingy - Copy\switchTester\bin\Debug\switchTester.pdb
+C:\Users\lucas\Documents\SwitchTester\rocketThingy - Copy\switchTester\obj\Debug\switchTester.csproj.AssemblyReference.cache
+C:\Users\lucas\Documents\SwitchTester\rocketThingy - Copy\switchTester\obj\Debug\switchTester.Form1.resources
+C:\Users\lucas\Documents\SwitchTester\rocketThingy - Copy\switchTester\obj\Debug\switchTester.Properties.Resources.resources
+C:\Users\lucas\Documents\SwitchTester\rocketThingy - Copy\switchTester\obj\Debug\switchTester.csproj.GenerateResource.cache
+C:\Users\lucas\Documents\SwitchTester\rocketThingy - Copy\switchTester\obj\Debug\switchTester.csproj.CoreCompileInputs.cache
+C:\Users\lucas\Documents\SwitchTester\rocketThingy - Copy\switchTester\obj\Debug\switchTester.exe
+C:\Users\lucas\Documents\SwitchTester\rocketThingy - Copy\switchTester\obj\Debug\switchTester.pdb
