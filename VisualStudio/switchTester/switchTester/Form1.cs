@@ -11,6 +11,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using System.Windows.Forms.DataVisualization.Charting;
 using static System.Windows.Forms.VisualStyles.VisualStyleElement;
 
 namespace switchTester
@@ -20,20 +21,37 @@ namespace switchTester
         bool CommOpen = false;
         bool Comm2Open = false;
         bool Stroking = false;
+        bool Homed = false;
 
         float force = 0.0f;
+
+        int upStroke = 0;
+
+
+        int steps = 0;
+        int Samples = 0;
+
+        struct SampleData_t
+        {
+            public float[] downForce;
+            public float[] upForce;
+        }
+        SampleData_t[] sampleData;
+        SampleData_t averageData;
+        float[] stepPosition;
 
         private TaskCompletionSource<bool> _homingTcs;
         private TaskCompletionSource<bool> _getForceTcs;
         private CancellationTokenSource _strokeCts;
 
+        // new field to store profiles in-memory (profile name -> (ZOffset, Travel))
+        private Dictionary<string, (string ZOffset, string Travel)> _profiles = new Dictionary<string, (string, string)>();
+
         public Form1()
         {
             InitializeComponent();
-
-            
+            LoadProfiles();
         }
-
 
         private void ComPort_Button_Click(object sender, EventArgs e)
         {
@@ -102,10 +120,6 @@ namespace switchTester
             }
         }
 
-        private void ClearCSV_Button_Click(object sender, EventArgs e)
-        {
-            CSV_TextBox.Clear();
-        }
 
 
 
@@ -134,6 +148,9 @@ namespace switchTester
                     MoveLeft_Button.Enabled = true;
                     MoveRight_Button.Enabled = true;
                     MoveHome_Button.Enabled = true;
+                    GetPos_Button.Enabled = true;
+
+                    Homed = false;
                 }
             }
             else
@@ -148,24 +165,87 @@ namespace switchTester
                 MoveLeft_Button.Enabled = false;
                 MoveRight_Button.Enabled = false;
                 MoveHome_Button.Enabled = false;
+                GetPos_Button.Enabled = false;
             }
         }
 
+        bool TrySerialWrite(System.IO.Ports.SerialPort port, Action writeAction, string friendlyName)
+        {
+            if (port == null || !port.IsOpen)
+            {
+                if (Stroking)
+                {
+                    _strokeCts?.Cancel();
+                    Status_TextBox.AppendText("Port '" + (friendlyName ?? "(unknown)") + "' not open — stopping test." + Environment.NewLine);
+                }
+                else
+                    Status_TextBox.AppendText($"Port '{friendlyName ?? "(unknown)"}' not open — command skipped.{Environment.NewLine}");
+                return false;
+            }
 
+            try
+            {
+                writeAction();
+                return true;
+            }
+            catch (UnauthorizedAccessException uaex)
+            {
+                Status_TextBox.AppendText($"Access error writing to '{friendlyName}': {uaex.Message}{Environment.NewLine}");
+            }
+            catch (IOException ioex)
+            {
+                Status_TextBox.AppendText($"I/O error writing to '{friendlyName}': {ioex.Message}{Environment.NewLine}");
+            }
+            catch (InvalidOperationException invex)
+            {
+                Status_TextBox.AppendText($"Invalid operation writing to '{friendlyName}': {invex.Message}{Environment.NewLine}");
+            }
+            catch (Exception ex)
+            {
+                Status_TextBox.AppendText($"Unexpected error writing to '{friendlyName}': {ex.Message}{Environment.NewLine}");
+            }
+
+            return false;
+        }
 
         void MoveRelative(string axis, float distance)
         {
-            CommLink2_SerialPort.Write("G91" + Environment.NewLine + $"G0 {axis}" + distance + Environment.NewLine);
-            Tx2_TextBox.AppendText("G91" + Environment.NewLine + $"G0 {axis}" + distance + Environment.NewLine); // send message to the status text box
+            TrySerialWrite(CommLink2_SerialPort, () =>
+            {
+                CommLink2_SerialPort.Write("G91" + Environment.NewLine + $"G0 {axis}" + distance + Environment.NewLine);
+                Tx2_TextBox.AppendText("G91" + Environment.NewLine + $"G0 {axis}" + distance + Environment.NewLine);
+            }, CommLink2_SerialPort?.PortName);
+        }
+
+        void MoveAbsolute(string axis, float position)
+        {
+            TrySerialWrite(CommLink2_SerialPort, () =>
+            {
+                CommLink2_SerialPort.Write("G90" + Environment.NewLine + $"G0 {axis}" + position + Environment.NewLine);
+                Tx2_TextBox.AppendText("G90" + Environment.NewLine + $"G0 {axis}" + position + Environment.NewLine);
+            }, CommLink2_SerialPort?.PortName);
         }
 
         void HomeAxis(string axis)
         {
-            _homingTcs = new TaskCompletionSource<bool>();
-            CommLink2_SerialPort.Write("G28 " + axis + Environment.NewLine);
-            Tx2_TextBox.AppendText("G28 " + axis + Environment.NewLine); // send message to the status text box
+            if (CommLink2_SerialPort == null || !CommLink2_SerialPort.IsOpen)
+            {
+                Status_TextBox.AppendText("Printer control port not open — cannot home." + Environment.NewLine);
+                return;
+            }
 
-            
+            // Drain any pending incoming data before creating the new waiter
+            try { CommLink2_SerialPort.DiscardInBuffer(); } catch { /* best-effort */ }
+
+            _homingTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+            TrySerialWrite(CommLink2_SerialPort, () =>
+            {
+                CommLink2_SerialPort.Write("G28 " + axis + Environment.NewLine);
+                Tx2_TextBox.AppendText("G28 " + axis + Environment.NewLine);
+            }, CommLink2_SerialPort.PortName);
+
+            Homed = true;
         }
 
         private void MoveUp_Button_Click(object sender, EventArgs e)
@@ -222,42 +302,94 @@ namespace switchTester
 
         private void TxSend2_Textbox_KeyUp(object sender, KeyEventArgs e)
         {
-            if (e.KeyData == Keys.Enter)
+            if (e.KeyData != Keys.Enter) return;
+
+            if (CommLink2_SerialPort == null || !CommLink2_SerialPort.IsOpen)
+            {
+                Status_TextBox.AppendText("Printer control port not open — can't send manual command." + Environment.NewLine);
+                TxSend2_Textbox.Clear();
+                return;
+            }
+
+            TrySerialWrite(CommLink2_SerialPort, () =>
             {
                 CommLink2_SerialPort.Write(TxSend2_Textbox.Text + Environment.NewLine);
                 Tx2_TextBox.AppendText(TxSend2_Textbox.Text + Environment.NewLine);
                 TxSend2_Textbox.Clear();
-            }
+            }, CommLink2_SerialPort.PortName);
         }
 
         private void CommLink2_SerialPort_DataReceived(object sender, System.IO.Ports.SerialDataReceivedEventArgs e)
         {
-            string rcvstring = CommLink2_SerialPort.ReadLine() + Environment.NewLine;
-            // Use BeginInvoke to post the UI update without blocking the background thread
-            Rx2_TextBox.BeginInvoke(new Action(() => Rx2_TextBox.AppendText(rcvstring)));
-
-            // Signal homing completion if someone is waiting
-            var tcs = _homingTcs;
-            if (tcs != null)
+            try
             {
-                tcs.TrySetResult(true); // non-throwing signal
-                _homingTcs = null;
+                string rcvstring = CommLink2_SerialPort.ReadLine() + Environment.NewLine;
+                // Use BeginInvoke to post the UI update without blocking the background thread
+                Rx2_TextBox.BeginInvoke(new Action(() => Rx2_TextBox.AppendText(rcvstring)));
+
+                // Signal homing completion if someone is waiting (use thread-safe exchange)
+                var tcs = System.Threading.Interlocked.Exchange(ref _homingTcs, null);
+                if (tcs != null)
+                {
+                    try { tcs.TrySetResult(true); } catch { /* swallow */ }
+                }
             }
-
-        }
-
-        void MoveAbsolute(string axis, float position)
-        {
-            CommLink2_SerialPort.Write("G90" + Environment.NewLine + $"G0 {axis}" + position + Environment.NewLine);
-            Tx2_TextBox.AppendText("G90" + Environment.NewLine + $"G0 {axis}" + position + Environment.NewLine); // send message to the status text box
+            catch (IOException ioex)
+            {
+                // Serial port IO error — log and release any waiting tcs to avoid deadlock
+                Rx2_TextBox.BeginInvoke(new Action(() => Rx2_TextBox.AppendText("CommLink2 IO error: " + ioex.Message + Environment.NewLine)));
+                var tcs = System.Threading.Interlocked.Exchange(ref _homingTcs, null);
+                if (tcs != null)
+                {
+                    try { tcs.TrySetResult(true); } catch { }
+                }
+            }
+            catch (Exception ex)
+            {
+                // Unexpected exception in DataReceived should not kill the serial thread — log and release tcs
+                Rx2_TextBox.BeginInvoke(new Action(() => Rx2_TextBox.AppendText("CommLink2 DataReceived error: " + ex.Message + Environment.NewLine)));
+                var tcs = System.Threading.Interlocked.Exchange(ref _homingTcs, null);
+                if (tcs != null)
+                {
+                    try { tcs.TrySetResult(true); } catch { }
+                }
+            }
         }
 
         void GetForce()
         {
+            if (CommLink_SerialPort == null || !CommLink_SerialPort.IsOpen)
+            {
+                // If port closed, create a completed TCS so callers waiting won't hang.
+                var immediate = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+                immediate.TrySetResult(true);
+                _getForceTcs = immediate;
+                if (Stroking)
+                {
+                    _strokeCts?.Cancel();
+                    Status_TextBox.AppendText("Scale port not open — stopping test." + Environment.NewLine);
+                }
+                else
+                {
+                    Status_TextBox.AppendText("Scale port not open — cannot get force data." + Environment.NewLine);
+                }
+                
+                return;
+            }
+
+            try
+            {
+                CommLink_SerialPort.DiscardInBuffer();
+            }
+            catch { /* best-effort */ }
+
+            _getForceTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
             byte[] getForceCommand = { 0x01 };
-            _getForceTcs = new TaskCompletionSource<bool>();
-            CommLink_SerialPort.Write(getForceCommand, 0, 1);
-            Status_TextBox.AppendText("Getting Force Data" + Environment.NewLine); // send message to the status text box
+            TrySerialWrite(CommLink_SerialPort, () => CommLink_SerialPort.Write(getForceCommand, 0, 1), CommLink_SerialPort.PortName);
+
+            if (!Stroking)
+                Status_TextBox.AppendText("Getting force data" + Environment.NewLine);
         }
 
         private void Start_Button_Click(object sender, EventArgs e)
@@ -268,25 +400,18 @@ namespace switchTester
             }
             else
             {
+                if (CommLink2_SerialPort.IsOpen == false)
+                    ComPort2_Button.PerformClick();
+                
+                if (CommLink_SerialPort.IsOpen == false)
+                    ComPort_Button.PerformClick();
+
                 Start_Button.Text = "Stop";
                 _strokeCts = new CancellationTokenSource();
                 StrokeTest(_strokeCts.Token);
                 Stroking = true;
             }
         }
-
-
-        int steps = 0;
-        int Samples = 0;
-
-        struct SampleData_t
-        {
-            public float[] downForce;
-            public float[] upForce;
-        }
-        SampleData_t[] sampleData;
-        SampleData_t averageData;
-        float[] stepPosition;
 
         async void StrokeTest(CancellationToken token)
         {
@@ -298,8 +423,15 @@ namespace switchTester
                 float StepSize = float.Parse(StepSize_ComboBox.Text);
                 Samples = Int32.Parse(Samples_ComboBox.Text);
 
+                // Use decimal for steps calculation to avoid floating-point rounding errors
+                decimal travelDec = decimal.Parse(Travel_ComboBox.Text);
+                decimal stepSizeDec = decimal.Parse(StepSize_ComboBox.Text);
+                int baseSteps = 0;
+                if (stepSizeDec > 0)
+                    baseSteps = (int)decimal.Floor(travelDec / stepSizeDec);
 
-                steps = (int)Math.Ceiling(Travel / StepSize) + 1;
+                steps = baseSteps + 1;
+
                 sampleData = new SampleData_t[Samples];
                 for (int i = 0; i < Samples; i++)
                 {
@@ -319,19 +451,23 @@ namespace switchTester
 
                 InitCharts();
 
-                HomeAxis("X Z");
-                var tcs = _homingTcs;
-                if (tcs != null)
+                if (!Homed)
                 {
-                    var completed = await Task.WhenAny(tcs.Task, Task.Delay(50000, token));
-                    if (completed != tcs.Task)
+                    HomeAxis("X Z");
+                    var tcs = _homingTcs;
+                    if (tcs != null)
                     {
-                        Status_TextBox.AppendText("Homing timed out" + Environment.NewLine);
-                        return;
+                        var completed = await Task.WhenAny(tcs.Task, Task.Delay(50000, token));
+                        if (completed != tcs.Task)
+                        {
+                            Status_TextBox.AppendText("Homing timed out" + Environment.NewLine);
+                            return;
+                        }
                     }
+                    
                 }
                 
-                MoveAbsolute("Z", ZOffset + 5);
+                MoveAbsolute("Z", ZOffset + 1);
                 await Task.Delay((int)Math.Ceiling(700 * ZOffset), token);
                 MoveAbsolute("X", XOffset);
                 await Task.Delay((int)Math.Ceiling(10 * XOffset), token);
@@ -344,14 +480,21 @@ namespace switchTester
 
                     TareScale();
                     await Task.Delay(100, token);
-                    MoveAbsolute("Z", ZOffset);
-                    await Task.Delay((int)Math.Ceiling(700 * ZOffset), token);
-                    upStroke = 0; // down stroke
+
+                    // start at ZOffset before stepping
+                    // we'll move to each step position first, then read force
                     for (int step = 0; step < steps; step++)
                     {
                         token.ThrowIfCancellationRequested();
 
-                        float nextPos = ZOffset - (step * StepSize);
+                        float targetPos = ZOffset - (step * StepSize);
+
+                        // move to the target position, then wait proportional to step size
+                        MoveAbsolute("Z", targetPos);
+                        await Task.Delay((int)Math.Ceiling(700 * StepSize), token);
+
+                        // record as down stroke
+                        upStroke = 0;
 
                         GetForce();
                         var tcs2 = _getForceTcs;
@@ -364,19 +507,25 @@ namespace switchTester
                                 return;
                             }
                         }
+
                         ProcessData(sample, step);
-                        MoveAbsolute("Z", nextPos);
-                        await Task.Delay((int)Math.Ceiling(700 * StepSize), token); // wait time proportional to step size
                     }
 
                     token.ThrowIfCancellationRequested();
 
-                    upStroke = 1; // up stroke
-                    for (int step = steps -1; step >= 0; step--)
+                    // Up stroke: move from deepest point back to start, reading after each move.
+                    for (int step = steps - 1; step >= 0; step--)
                     {
                         token.ThrowIfCancellationRequested();
 
-                        float nextPos = ZOffset - (step * StepSize);
+                        float targetPos = ZOffset - (step * StepSize);
+
+                        // move to the target position, wait for settle
+                        MoveAbsolute("Z", targetPos);
+                        await Task.Delay((int)Math.Ceiling(700 * StepSize), token);
+
+                        // record as up stroke
+                        upStroke = 1;
 
                         GetForce();
                         var tcs2 = _getForceTcs;
@@ -389,14 +538,15 @@ namespace switchTester
                                 return;
                             }
                         }
-                        ProcessData(sample, step);
-                        MoveAbsolute("Z", nextPos);
-                        await Task.Delay((int)Math.Ceiling(700 * StepSize), token); // wait time proportional to step size
-                    }
-                    MoveAbsolute("Z", ZOffset + 5);
-                    await Task.Delay((int)Math.Ceiling(700 * ZOffset), token);
 
+                        ProcessData(sample, step);
+                    }
+
+                    // lift a bit between samples
+                    MoveAbsolute("Z", ZOffset + 2);
+                    await Task.Delay(700 * 2, token);
                 }
+
                 GenerateCSV();
             }
             catch (OperationCanceledException)
@@ -467,11 +617,11 @@ namespace switchTester
             if (Average_Chart != null)
             {
                 Average_Chart.Series.Clear();
-                var avgSeries = Average_Chart.Series.Add("Average Down Stroke");
+                var avgSeries = Average_Chart.Series.Add("Down Stroke");
                 avgSeries.Points.Clear();
                 avgSeries.ChartType = System.Windows.Forms.DataVisualization.Charting.SeriesChartType.Line;
                 avgSeries.BorderWidth = 2;
-                avgSeries.Name = "Average Down Stroke";
+                avgSeries.Name = "Down Stroke";
 
                 // Pre-populate points so index == step always valid (works with descending upstroke)
                 if (steps > 0 && stepPosition != null)
@@ -482,11 +632,11 @@ namespace switchTester
                     }
                 }
 
-                avgSeries = Average_Chart.Series.Add("Average Up Stroke");
+                avgSeries = Average_Chart.Series.Add("Up Stroke");
                 avgSeries.Points.Clear();
                 avgSeries.ChartType = System.Windows.Forms.DataVisualization.Charting.SeriesChartType.Line;
                 avgSeries.BorderWidth = 2;
-                avgSeries.Name = "Average Up Stroke";
+                avgSeries.Name = "Up Stroke";
 
                 if (steps > 0 && stepPosition != null)
                 {
@@ -498,12 +648,21 @@ namespace switchTester
 
                 if (Average_Chart.ChartAreas.Count > 0)
                 {
-                    Average_Chart.ChartAreas[0].AxisX.LabelStyle.Format = "F2";
+                    var area = Average_Chart.ChartAreas[0];
+                    area.AxisX.LabelStyle.Format = "F2";
+
+                    // FIXED Y range: 0..100
+                    area.AxisY.Minimum = 0;
+                    area.AxisY.Maximum = 100;
+                    // Optional: set a reasonable interval for ticks
+                    area.AxisY.Interval = 10;
+
+                    // keep X auto-scaling (clear to allow dynamic X range)
+                    area.AxisX.Minimum = double.NaN;
+                    area.AxisX.Maximum = double.NaN;
                 }
             }
         }
-
-        int upStroke = 0;
 
         void ProcessData(int sample, int step)
         {
@@ -604,10 +763,10 @@ namespace switchTester
                 if (Average_Chart.ChartAreas.Count > 0)
                 {
                     var area = Average_Chart.ChartAreas[0];
+
+                    // keep Y axis fixed (0..100) — only autoscale X axis
                     area.AxisX.Minimum = double.NaN;
                     area.AxisX.Maximum = double.NaN;
-                    area.AxisY.Minimum = double.NaN;
-                    area.AxisY.Maximum = double.NaN;
                     area.RecalculateAxesScale();
                 }
             };
@@ -624,28 +783,62 @@ namespace switchTester
 
         void TareScale()
         {
+            if (CommLink_SerialPort == null || !CommLink_SerialPort.IsOpen)
+            {
+                Status_TextBox.AppendText("Scale port not open — cannot tare." + Environment.NewLine);
+                return;
+            }
+
             byte[] tareCommand = { 0x02 };
-            CommLink_SerialPort.Write(tareCommand, 0, 1);
-            Status_TextBox.AppendText("Tareing scale" + Environment.NewLine); // send message to the status text box
+            TrySerialWrite(CommLink_SerialPort, () => CommLink_SerialPort.Write(tareCommand, 0, 1), CommLink_SerialPort.PortName);
+            Status_TextBox.AppendText("Tareing scale" + Environment.NewLine);
         }
 
 
         private void CommLink_SerialPort_DataReceived(object sender, System.IO.Ports.SerialDataReceivedEventArgs e)
         {
-
-            // Signal getForce completion if someone is waiting
-            var tcs2 = _getForceTcs;
-            if (tcs2 != null)
+            try
             {
-                tcs2.TrySetResult(true); // non-throwing signal
-                _getForceTcs = null;
+                string raw = CommLink_SerialPort.ReadLine();
+                // Try parse numeric force value; be tolerant of non-numeric responses
+                float parsedForce;
+                bool parsed = float.TryParse(raw, out parsedForce);
+
+                // Update force variable only if parse succeeded
+                if (parsed)
+                    force = parsedForce;
+
+                // Append the raw line to RX textbox (UI thread)
+                RX_TextBox.BeginInvoke(new Action(() =>
+                    RX_TextBox.AppendText((parsed ? parsedForce.ToString() : raw) + Environment.NewLine)));
+
+                // Signal getForce completion if someone is waiting (thread-safe exchange)
+                var tcs = System.Threading.Interlocked.Exchange(ref _getForceTcs, null);
+                if (tcs != null)
+                {
+                    try { tcs.TrySetResult(true); } catch { /* swallow */ }
+                }
             }
-
-            force = float.Parse(CommLink_SerialPort.ReadLine());
-            RX_TextBox.BeginInvoke(new Action(() => RX_TextBox.AppendText(force + Environment.NewLine)));
-        
-
-
+            catch (IOException ioex)
+            {
+                // IO exception — log and release waiting tcs to avoid deadlock
+                RX_TextBox.BeginInvoke(new Action(() => RX_TextBox.AppendText("CommLink IO error: " + ioex.Message + Environment.NewLine)));
+                var tcs = System.Threading.Interlocked.Exchange(ref _getForceTcs, null);
+                if (tcs != null)
+                {
+                    try { tcs.TrySetResult(true); } catch { }
+                }
+            }
+            catch (Exception ex)
+            {
+                // Any unexpected exception must be logged and should not kill the serial thread.
+                RX_TextBox.BeginInvoke(new Action(() => RX_TextBox.AppendText("CommLink DataReceived error: " + ex.Message + Environment.NewLine)));
+                var tcs = System.Threading.Interlocked.Exchange(ref _getForceTcs, null);
+                if (tcs != null)
+                {
+                    try { tcs.TrySetResult(true); } catch { }
+                }
+            }
         }
 
         private void Tare_Button_Click(object sender, EventArgs e)
@@ -653,5 +846,186 @@ namespace switchTester
             TareScale();
         }
 
+
+        private void GetPos_Button_Click(object sender, EventArgs e)
+        {
+            TrySerialWrite(CommLink2_SerialPort, () =>
+            {
+                CommLink2_SerialPort.Write("M114 " + Environment.NewLine);
+                Tx2_TextBox.AppendText("M114 " + Environment.NewLine);
+            }, CommLink2_SerialPort?.PortName);
+        }
+
+        private void ProfileSave_Button_Click(object sender, EventArgs e)
+        {
+            // Prompt for a profile name using the existing Prompt class
+            string profileName = Prompt.ShowDialog("Enter profile name:", "Save Profile", "");
+            if (string.IsNullOrWhiteSpace(profileName))
+            {
+                // user cancelled or entered nothing
+                return;
+            }
+
+            string zValue = ZOffset_ComboBox.Text;
+            string travelValue = Travel_ComboBox.Text;
+
+            if (_profiles.ContainsKey(profileName))
+            {
+                var result = MessageBox.Show($"Profile '{profileName}' already exists. Overwrite?", "Confirm Overwrite", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+                if (result != DialogResult.Yes)
+                    return;
+
+                _profiles[profileName] = (zValue, travelValue);
+            }
+            else
+            {
+                _profiles.Add(profileName, (zValue, travelValue));
+                Profile_ComboBox.Items.Add(profileName);
+            }
+
+            // Select the saved profile
+            Profile_ComboBox.SelectedItem = profileName;
+            Status_TextBox.AppendText($"Profile '{profileName}' saved (ZOffset={zValue}, Travel={travelValue}).{Environment.NewLine}");
+
+            // persist to disk
+            SaveProfiles();
+        }
+
+        private void Profile_ComboBox_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            var sel = Profile_ComboBox.SelectedItem;
+            if (sel == null) return;
+
+            string profileName = sel.ToString();
+            if (!_profiles.TryGetValue(profileName, out var values)) return;
+
+            // Apply profile values to the comboboxes
+            ZOffset_ComboBox.Text = values.ZOffset;
+            Travel_ComboBox.Text = values.Travel;
+
+            Status_TextBox.AppendText($"Profile '{profileName}' loaded (ZOffset={values.ZOffset}, Travel={values.Travel}).{Environment.NewLine}");
+        }
+
+        private string ProfilesFilePath()
+        {
+            var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "switchTester");
+            try { Directory.CreateDirectory(dir); } catch { /* best-effort */ }
+            return Path.Combine(dir, "profiles.xml");
+        }
+
+        private void SaveProfiles()
+        {
+            try
+            {
+                var list = _profiles.Select(kv => new ProfileEntry(kv.Key, kv.Value.ZOffset, kv.Value.Travel)).ToList();
+                var path = ProfilesFilePath();
+                using (var fs = File.Create(path))
+                {
+                    var xs = new System.Xml.Serialization.XmlSerializer(typeof(List<ProfileEntry>));
+                    xs.Serialize(fs, list);
+                }
+            }
+            catch (Exception ex)
+            {
+                Status_TextBox.AppendText("Error saving profiles: " + ex.Message + Environment.NewLine);
+            }
+        }
+
+        private void LoadProfiles()
+        {
+            try
+            {
+                var path = ProfilesFilePath();
+                if (!File.Exists(path)) return;
+
+                List<ProfileEntry> list;
+                using (var fs = File.OpenRead(path))
+                {
+                    var xs = new System.Xml.Serialization.XmlSerializer(typeof(List<ProfileEntry>));
+                    list = (List<ProfileEntry>)xs.Deserialize(fs);
+                }
+
+                _profiles.Clear();
+                Profile_ComboBox.Items.Clear();
+
+                foreach (var p in list)
+                {
+                    if (string.IsNullOrWhiteSpace(p?.Name)) continue;
+                    _profiles[p.Name] = (p.ZOffset ?? string.Empty, p.Travel ?? string.Empty);
+                    Profile_ComboBox.Items.Add(p.Name);
+                }
+            }
+            catch (Exception ex)
+            {
+                Status_TextBox.AppendText("Error loading profiles: " + ex.Message + Environment.NewLine);
+            }
+        }
+
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            try { SaveProfiles(); } catch { /* swallow - logging already handled in SaveProfiles */ }
+            base.OnFormClosing(e);
+        }
+    }
+
+    public class ProfileEntry
+    {
+        public string Name { get; set; }
+        public string ZOffset { get; set; }
+        public string Travel { get; set; }
+
+        public ProfileEntry() { }
+
+        public ProfileEntry(string name, string z, string t)
+        {
+            Name = name;
+            ZOffset = z;
+            Travel = t;
+        }
+    }
+
+    static class Prompt
+    {
+        public static string ShowDialog(string text, string caption, string defaultValue = "")
+        {
+            using (var form = new Form())
+            using (var label = new Label())
+            using (var textBox = new System.Windows.Forms.TextBox())
+            using (var ok = new System.Windows.Forms.Button())
+            using (var cancel = new System.Windows.Forms.Button())
+            {
+                form.Text = caption;
+                form.FormBorderStyle = FormBorderStyle.FixedDialog;
+                form.StartPosition = FormStartPosition.CenterParent;
+                form.ClientSize = new Size(400, 120);
+                form.MinimizeBox = false;
+                form.MaximizeBox = false;
+                form.ShowInTaskbar = false;
+                form.AcceptButton = ok;
+                form.CancelButton = cancel;
+
+                label.Text = text;
+                label.SetBounds(9, 10, 380, 20);
+
+                textBox.Text = defaultValue;
+                textBox.SetBounds(12, 35, 376, 20);
+                textBox.Anchor = AnchorStyles.Top | AnchorStyles.Left | AnchorStyles.Right;
+
+                ok.Text = "OK";
+                ok.DialogResult = DialogResult.OK;
+                ok.SetBounds(228, 70, 80, 24);
+                ok.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
+
+                cancel.Text = "Cancel";
+                cancel.DialogResult = DialogResult.Cancel;
+                cancel.SetBounds(312, 70, 80, 24);
+                cancel.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
+
+                form.Controls.AddRange(new Control[] { label, textBox, ok, cancel });
+
+                var result = form.ShowDialog();
+                return result == DialogResult.OK ? textBox.Text.Trim() : null;
+            }
+        }
     }
 }
