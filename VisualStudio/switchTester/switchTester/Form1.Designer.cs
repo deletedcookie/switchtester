@@ -29,20 +29,20 @@
         private void InitializeComponent()
         {
             this.components = new System.ComponentModel.Container();
-            System.Windows.Forms.DataVisualization.Charting.ChartArea chartArea4 = new System.Windows.Forms.DataVisualization.Charting.ChartArea();
-            System.Windows.Forms.DataVisualization.Charting.Legend legend4 = new System.Windows.Forms.DataVisualization.Charting.Legend();
-            System.Windows.Forms.DataVisualization.Charting.Series series4 = new System.Windows.Forms.DataVisualization.Charting.Series();
-            System.Windows.Forms.DataVisualization.Charting.ChartArea chartArea5 = new System.Windows.Forms.DataVisualization.Charting.ChartArea();
-            System.Windows.Forms.DataVisualization.Charting.Legend legend5 = new System.Windows.Forms.DataVisualization.Charting.Legend();
-            System.Windows.Forms.DataVisualization.Charting.Series series5 = new System.Windows.Forms.DataVisualization.Charting.Series();
-            System.Windows.Forms.DataVisualization.Charting.ChartArea chartArea6 = new System.Windows.Forms.DataVisualization.Charting.ChartArea();
-            System.Windows.Forms.DataVisualization.Charting.Legend legend6 = new System.Windows.Forms.DataVisualization.Charting.Legend();
-            System.Windows.Forms.DataVisualization.Charting.Series series6 = new System.Windows.Forms.DataVisualization.Charting.Series();
+            System.Windows.Forms.DataVisualization.Charting.ChartArea chartArea1 = new System.Windows.Forms.DataVisualization.Charting.ChartArea();
+            System.Windows.Forms.DataVisualization.Charting.Legend legend1 = new System.Windows.Forms.DataVisualization.Charting.Legend();
+            System.Windows.Forms.DataVisualization.Charting.Series series1 = new System.Windows.Forms.DataVisualization.Charting.Series();
+            System.Windows.Forms.DataVisualization.Charting.ChartArea chartArea2 = new System.Windows.Forms.DataVisualization.Charting.ChartArea();
+            System.Windows.Forms.DataVisualization.Charting.Legend legend2 = new System.Windows.Forms.DataVisualization.Charting.Legend();
+            System.Windows.Forms.DataVisualization.Charting.Series series2 = new System.Windows.Forms.DataVisualization.Charting.Series();
+            System.Windows.Forms.DataVisualization.Charting.ChartArea chartArea3 = new System.Windows.Forms.DataVisualization.Charting.ChartArea();
+            System.Windows.Forms.DataVisualization.Charting.Legend legend3 = new System.Windows.Forms.DataVisualization.Charting.Legend();
+            System.Windows.Forms.DataVisualization.Charting.Series series3 = new System.Windows.Forms.DataVisualization.Charting.Series();
             this.backgroundWorker1 = new System.ComponentModel.BackgroundWorker();
             this.ComPort_ComboBox = new System.Windows.Forms.ComboBox();
             this.BaudRate_ComboBox = new System.Windows.Forms.ComboBox();
             this.ComPort_Button = new System.Windows.Forms.Button();
-            this.Launch_Button = new System.Windows.Forms.Button();
+            this.GetForce_Button = new System.Windows.Forms.Button();
             this.SaveCSV_Button = new System.Windows.Forms.Button();
             this.Status_TextBox = new System.Windows.Forms.TextBox();
             this.CSV_TextBox = new System.Windows.Forms.TextBox();
@@ -80,6 +80,8 @@
             this.Profile_ComboBox = new System.Windows.Forms.ComboBox();
             this.label6 = new System.Windows.Forms.Label();
             this.ProfileSave_Button = new System.Windows.Forms.Button();
+            this.CopyCSV_Button = new System.Windows.Forms.Button();
+            this.GetComPorts_Button = new System.Windows.Forms.Button();
             ((System.ComponentModel.ISupportInitialize)(this.SampleDownStroke_Chart)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.Average_Chart)).BeginInit();
             ((System.ComponentModel.ISupportInitialize)(this.SampleUpStroke_Chart)).BeginInit();
@@ -92,8 +94,7 @@
             this.ComPort_ComboBox.Name = "ComPort_ComboBox";
             this.ComPort_ComboBox.Size = new System.Drawing.Size(121, 21);
             this.ComPort_ComboBox.TabIndex = 1;
-            this.ComPort_ComboBox.Text = "COM10";
-            this.ComPort_ComboBox.Click += new System.EventHandler(this.ComPort_ComboBox_Click);
+            this.ComPort_ComboBox.Text = "Select COM Port";
             // 
             // BaudRate_ComboBox
             // 
@@ -116,19 +117,19 @@
             this.ComPort_Button.UseVisualStyleBackColor = true;
             this.ComPort_Button.Click += new System.EventHandler(this.ComPort_Button_Click);
             // 
-            // Launch_Button
+            // GetForce_Button
             // 
-            this.Launch_Button.Location = new System.Drawing.Point(632, 76);
-            this.Launch_Button.Name = "Launch_Button";
-            this.Launch_Button.Size = new System.Drawing.Size(110, 33);
-            this.Launch_Button.TabIndex = 6;
-            this.Launch_Button.Text = "Get Force";
-            this.Launch_Button.UseVisualStyleBackColor = true;
-            this.Launch_Button.Click += new System.EventHandler(this.Launch_Button_Click);
+            this.GetForce_Button.Location = new System.Drawing.Point(494, 72);
+            this.GetForce_Button.Name = "GetForce_Button";
+            this.GetForce_Button.Size = new System.Drawing.Size(110, 33);
+            this.GetForce_Button.TabIndex = 6;
+            this.GetForce_Button.Text = "Get Force";
+            this.GetForce_Button.UseVisualStyleBackColor = true;
+            this.GetForce_Button.Click += new System.EventHandler(this.GetForce_Button_Click);
             // 
             // SaveCSV_Button
             // 
-            this.SaveCSV_Button.Location = new System.Drawing.Point(478, 83);
+            this.SaveCSV_Button.Location = new System.Drawing.Point(982, 72);
             this.SaveCSV_Button.Name = "SaveCSV_Button";
             this.SaveCSV_Button.Size = new System.Drawing.Size(110, 33);
             this.SaveCSV_Button.TabIndex = 7;
@@ -138,36 +139,36 @@
             // 
             // Status_TextBox
             // 
-            this.Status_TextBox.Location = new System.Drawing.Point(208, 17);
+            this.Status_TextBox.Location = new System.Drawing.Point(208, 12);
             this.Status_TextBox.Multiline = true;
             this.Status_TextBox.Name = "Status_TextBox";
             this.Status_TextBox.ReadOnly = true;
             this.Status_TextBox.ScrollBars = System.Windows.Forms.ScrollBars.Vertical;
-            this.Status_TextBox.Size = new System.Drawing.Size(111, 99);
+            this.Status_TextBox.Size = new System.Drawing.Size(111, 104);
             this.Status_TextBox.TabIndex = 9;
             // 
             // CSV_TextBox
             // 
-            this.CSV_TextBox.Location = new System.Drawing.Point(478, 12);
+            this.CSV_TextBox.Location = new System.Drawing.Point(670, 17);
             this.CSV_TextBox.Multiline = true;
             this.CSV_TextBox.Name = "CSV_TextBox";
             this.CSV_TextBox.ReadOnly = true;
             this.CSV_TextBox.ScrollBars = System.Windows.Forms.ScrollBars.Vertical;
-            this.CSV_TextBox.Size = new System.Drawing.Size(111, 65);
+            this.CSV_TextBox.Size = new System.Drawing.Size(296, 104);
             this.CSV_TextBox.TabIndex = 10;
             // 
             // SampleDownStroke_Chart
             // 
-            chartArea4.Name = "ChartArea1";
-            this.SampleDownStroke_Chart.ChartAreas.Add(chartArea4);
-            legend4.Name = "Legend1";
-            this.SampleDownStroke_Chart.Legends.Add(legend4);
+            chartArea1.Name = "ChartArea1";
+            this.SampleDownStroke_Chart.ChartAreas.Add(chartArea1);
+            legend1.Name = "Legend1";
+            this.SampleDownStroke_Chart.Legends.Add(legend1);
             this.SampleDownStroke_Chart.Location = new System.Drawing.Point(1250, 489);
             this.SampleDownStroke_Chart.Name = "SampleDownStroke_Chart";
-            series4.ChartArea = "ChartArea1";
-            series4.Legend = "Legend1";
-            series4.Name = "Series1";
-            this.SampleDownStroke_Chart.Series.Add(series4);
+            series1.ChartArea = "ChartArea1";
+            series1.Legend = "Legend1";
+            series1.Name = "Series1";
+            this.SampleDownStroke_Chart.Series.Add(series1);
             this.SampleDownStroke_Chart.Size = new System.Drawing.Size(557, 207);
             this.SampleDownStroke_Chart.TabIndex = 11;
             this.SampleDownStroke_Chart.Text = "CSV_Chart";
@@ -214,8 +215,7 @@
             this.ComPort2_ComboBox.Name = "ComPort2_ComboBox";
             this.ComPort2_ComboBox.Size = new System.Drawing.Size(121, 21);
             this.ComPort2_ComboBox.TabIndex = 13;
-            this.ComPort2_ComboBox.Text = "COM9";
-            this.ComPort2_ComboBox.Click += new System.EventHandler(this.ComPort2_ComboBox_Click);
+            this.ComPort2_ComboBox.Text = "Select COM Port";
             // 
             // MoveUp_Button
             // 
@@ -395,6 +395,7 @@
             this.StepSize_ComboBox.FormattingEnabled = true;
             this.StepSize_ComboBox.Items.AddRange(new object[] {
             ".01",
+            ".02",
             "0.05",
             "0.1"});
             this.StepSize_ComboBox.Location = new System.Drawing.Point(1250, 336);
@@ -405,11 +406,11 @@
             // 
             // Tare_Button
             // 
-            this.Tare_Button.Location = new System.Drawing.Point(632, 24);
+            this.Tare_Button.Location = new System.Drawing.Point(494, 22);
             this.Tare_Button.Name = "Tare_Button";
             this.Tare_Button.Size = new System.Drawing.Size(110, 33);
             this.Tare_Button.TabIndex = 30;
-            this.Tare_Button.Text = "tare";
+            this.Tare_Button.Text = "Tare";
             this.Tare_Button.UseVisualStyleBackColor = true;
             this.Tare_Button.Click += new System.EventHandler(this.Tare_Button_Click);
             // 
@@ -430,32 +431,32 @@
             // 
             // Average_Chart
             // 
-            chartArea5.Name = "ChartArea1";
-            this.Average_Chart.ChartAreas.Add(chartArea5);
-            legend5.Name = "Legend1";
-            this.Average_Chart.Legends.Add(legend5);
+            chartArea2.Name = "ChartArea1";
+            this.Average_Chart.ChartAreas.Add(chartArea2);
+            legend2.Name = "Legend1";
+            this.Average_Chart.Legends.Add(legend2);
             this.Average_Chart.Location = new System.Drawing.Point(12, 146);
             this.Average_Chart.Name = "Average_Chart";
-            series5.ChartArea = "ChartArea1";
-            series5.Legend = "Legend1";
-            series5.Name = "Series1";
-            this.Average_Chart.Series.Add(series5);
+            series2.ChartArea = "ChartArea1";
+            series2.Legend = "Legend1";
+            series2.Name = "Series1";
+            this.Average_Chart.Series.Add(series2);
             this.Average_Chart.Size = new System.Drawing.Size(1212, 808);
             this.Average_Chart.TabIndex = 32;
             this.Average_Chart.Text = "chart1";
             // 
             // SampleUpStroke_Chart
             // 
-            chartArea6.Name = "ChartArea1";
-            this.SampleUpStroke_Chart.ChartAreas.Add(chartArea6);
-            legend6.Name = "Legend1";
-            this.SampleUpStroke_Chart.Legends.Add(legend6);
+            chartArea3.Name = "ChartArea1";
+            this.SampleUpStroke_Chart.ChartAreas.Add(chartArea3);
+            legend3.Name = "Legend1";
+            this.SampleUpStroke_Chart.Legends.Add(legend3);
             this.SampleUpStroke_Chart.Location = new System.Drawing.Point(1250, 712);
             this.SampleUpStroke_Chart.Name = "SampleUpStroke_Chart";
-            series6.ChartArea = "ChartArea1";
-            series6.Legend = "Legend1";
-            series6.Name = "Series1";
-            this.SampleUpStroke_Chart.Series.Add(series6);
+            series3.ChartArea = "ChartArea1";
+            series3.Legend = "Legend1";
+            series3.Name = "Series1";
+            this.SampleUpStroke_Chart.Series.Add(series3);
             this.SampleUpStroke_Chart.Size = new System.Drawing.Size(557, 207);
             this.SampleUpStroke_Chart.TabIndex = 33;
             this.SampleUpStroke_Chart.Text = "CSV_Chart";
@@ -531,9 +532,9 @@
             this.label6.AutoSize = true;
             this.label6.Location = new System.Drawing.Point(1403, 320);
             this.label6.Name = "label6";
-            this.label6.Size = new System.Drawing.Size(52, 13);
+            this.label6.Size = new System.Drawing.Size(36, 13);
             this.label6.TabIndex = 42;
-            this.label6.Text = "Step Size";
+            this.label6.Text = "Profile";
             // 
             // ProfileSave_Button
             // 
@@ -545,11 +546,33 @@
             this.ProfileSave_Button.UseVisualStyleBackColor = true;
             this.ProfileSave_Button.Click += new System.EventHandler(this.ProfileSave_Button_Click);
             // 
+            // CopyCSV_Button
+            // 
+            this.CopyCSV_Button.Location = new System.Drawing.Point(982, 24);
+            this.CopyCSV_Button.Name = "CopyCSV_Button";
+            this.CopyCSV_Button.Size = new System.Drawing.Size(110, 33);
+            this.CopyCSV_Button.TabIndex = 44;
+            this.CopyCSV_Button.Text = "Copy";
+            this.CopyCSV_Button.UseVisualStyleBackColor = true;
+            this.CopyCSV_Button.Click += new System.EventHandler(this.CopyCSV_Button_Click);
+            // 
+            // GetComPorts_Button
+            // 
+            this.GetComPorts_Button.Location = new System.Drawing.Point(1129, 17);
+            this.GetComPorts_Button.Name = "GetComPorts_Button";
+            this.GetComPorts_Button.Size = new System.Drawing.Size(76, 97);
+            this.GetComPorts_Button.TabIndex = 45;
+            this.GetComPorts_Button.Text = "Get COM Ports";
+            this.GetComPorts_Button.UseVisualStyleBackColor = true;
+            this.GetComPorts_Button.Click += new System.EventHandler(this.GetComPorts_Button_Click);
+            // 
             // Form1
             // 
             this.AutoScaleDimensions = new System.Drawing.SizeF(6F, 13F);
             this.AutoScaleMode = System.Windows.Forms.AutoScaleMode.Font;
-            this.ClientSize = new System.Drawing.Size(1857, 966);
+            this.ClientSize = new System.Drawing.Size(1857, 981);
+            this.Controls.Add(this.GetComPorts_Button);
+            this.Controls.Add(this.CopyCSV_Button);
             this.Controls.Add(this.ProfileSave_Button);
             this.Controls.Add(this.label6);
             this.Controls.Add(this.Profile_ComboBox);
@@ -585,12 +608,12 @@
             this.Controls.Add(this.CSV_TextBox);
             this.Controls.Add(this.Status_TextBox);
             this.Controls.Add(this.SaveCSV_Button);
-            this.Controls.Add(this.Launch_Button);
+            this.Controls.Add(this.GetForce_Button);
             this.Controls.Add(this.ComPort_Button);
             this.Controls.Add(this.BaudRate_ComboBox);
             this.Controls.Add(this.ComPort_ComboBox);
             this.Name = "Form1";
-            this.Text = "Form1";
+            this.Text = "Switch Tester";
             ((System.ComponentModel.ISupportInitialize)(this.SampleDownStroke_Chart)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.Average_Chart)).EndInit();
             ((System.ComponentModel.ISupportInitialize)(this.SampleUpStroke_Chart)).EndInit();
@@ -604,7 +627,7 @@
         private System.Windows.Forms.ComboBox ComPort_ComboBox;
         private System.Windows.Forms.ComboBox BaudRate_ComboBox;
         private System.Windows.Forms.Button ComPort_Button;
-        private System.Windows.Forms.Button Launch_Button;
+        private System.Windows.Forms.Button GetForce_Button;
         private System.Windows.Forms.Button SaveCSV_Button;
         private System.Windows.Forms.TextBox Status_TextBox;
         private System.Windows.Forms.TextBox CSV_TextBox;
@@ -642,6 +665,8 @@
         private System.Windows.Forms.ComboBox Profile_ComboBox;
         private System.Windows.Forms.Label label6;
         private System.Windows.Forms.Button ProfileSave_Button;
+        private System.Windows.Forms.Button CopyCSV_Button;
+        private System.Windows.Forms.Button GetComPorts_Button;
     }
 }
 

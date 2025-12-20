@@ -27,7 +27,6 @@ namespace switchTester
 
         int upStroke = 0;
 
-
         int steps = 0;
         int Samples = 0;
 
@@ -35,6 +34,7 @@ namespace switchTester
         {
             public float[] downForce;
             public float[] upForce;
+            public bool[] isPressed;
         }
         SampleData_t[] sampleData;
         SampleData_t averageData;
@@ -44,6 +44,12 @@ namespace switchTester
         private TaskCompletionSource<bool> _getForceTcs;
         private CancellationTokenSource _strokeCts;
 
+        // track whether the last force read was valid (set by DataReceived)
+        private volatile bool _lastForceValid = false;
+
+        // maximum number of retries when an invalid force value is received
+        private const int MaxForceRetries = 3;
+
         // new field to store profiles in-memory (profile name -> (ZOffset, Travel))
         private Dictionary<string, (string ZOffset, string Travel)> _profiles = new Dictionary<string, (string, string)>();
 
@@ -51,6 +57,7 @@ namespace switchTester
         {
             InitializeComponent();
             LoadProfiles();
+            LoadComboBoxSettings();
         }
 
         private void ComPort_Button_Click(object sender, EventArgs e)
@@ -64,27 +71,82 @@ namespace switchTester
                 }
                 else
                 {
-                    CommLink_SerialPort.PortName = ComPort_ComboBox.Text; // set the serial port name to the name in the com port text box
-                    CommLink_SerialPort.BaudRate = Int32.Parse(BaudRate_ComboBox.Text);
-                    CommLink_SerialPort.Open(); // open the serial port
-                    Status_TextBox.AppendText("Serial port " + CommLink_SerialPort.PortName + " opened." + Environment.NewLine); // send message to the status text box
+                    var selected = ComPort_ComboBox.Text?.Trim();
+                    if (string.IsNullOrEmpty(selected))
+                    {
+                        Status_TextBox.AppendText("No COM port selected. Please select a port and try again." + Environment.NewLine);
+                        return;
+                    }
 
-                    CommOpen = true;
-                    ComPort_Button.Text = "Close COM Port";
+                    // quick check against current system ports to provide a clearer error for non-existent ports
+                    var available = System.IO.Ports.SerialPort.GetPortNames();
+                    if (!available.Any(p => string.Equals(p, selected, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        Status_TextBox.AppendText($"COM port '{selected}' not found. Refresh the list and try again." + Environment.NewLine);
+                        GetComPorts();
+                        return;
+                    }
+
+                    CommLink_SerialPort.PortName = selected; // set the serial port name to the name in the com port text box
+
+                    int baud = 9600;
+                    if (!int.TryParse(BaudRate_ComboBox.Text, out baud))
+                    {
+                        Status_TextBox.AppendText("Invalid baud rate; using default 9600." + Environment.NewLine);
+                        baud = 9600;
+                    }
+                    CommLink_SerialPort.BaudRate = baud;
+
+                    try
+                    {
+                        CommLink_SerialPort.Open(); // open the serial port
+                        Status_TextBox.AppendText("Serial port " + CommLink_SerialPort.PortName + " opened." + Environment.NewLine); // send message to the status text box
+
+                        CommOpen = true;
+                        ComPort_Button.Text = "Close COM Port";
+                    }
+                    catch (UnauthorizedAccessException uaex)
+                    {
+                        Status_TextBox.AppendText($"Access denied opening '{selected}': {uaex.Message}" + Environment.NewLine);
+                    }
+                    catch (System.IO.IOException ioex)
+                    {
+                        // most likely "port does not exist" or other IO error
+                        Status_TextBox.AppendText($"I/O error opening '{selected}': {ioex.Message}" + Environment.NewLine);
+                        // refresh list to help user
+                        GetComPorts();
+                    }
+                    catch (ArgumentException aex)
+                    {
+                        Status_TextBox.AppendText($"Invalid port name '{selected}': {aex.Message}" + Environment.NewLine);
+                    }
+                    catch (InvalidOperationException invex)
+                    {
+                        Status_TextBox.AppendText($"Port '{selected}' cannot be opened: {invex.Message}" + Environment.NewLine);
+                    }
+                    catch (Exception ex)
+                    {
+                        Status_TextBox.AppendText($"Unexpected error opening '{selected}': {ex.Message}" + Environment.NewLine);
+                    }
                 }
             }
             else
             {
-                CommLink_SerialPort.Close();
+                try
+                {
+                    CommLink_SerialPort.Close();
+                    Status_TextBox.AppendText("Serial port " + CommLink_SerialPort.PortName + " closed." + Environment.NewLine); // send message to the status text box
+                }
+                catch (Exception ex)
+                {
+                    Status_TextBox.AppendText("Error closing serial port: " + ex.Message + Environment.NewLine);
+                }
                 CommOpen = false;
                 ComPort_Button.Text = "Open COM Port";
-                Status_TextBox.AppendText("Serial port " + CommLink_SerialPort.PortName + " closed." + Environment.NewLine); // send message to the status text box
             }
-           
         }
 
-
-        private void Launch_Button_Click(object sender, EventArgs e)
+        private void GetForce_Button_Click(object sender, EventArgs e)
         {
             GetForce();
         }
@@ -120,9 +182,6 @@ namespace switchTester
             }
         }
 
-
-
-
         private void ComPort2_Button_Click(object sender, EventArgs e)
         {
             if (!Comm2Open)
@@ -134,32 +193,86 @@ namespace switchTester
                 }
                 else
                 {
-                    CommLink2_SerialPort.PortName = ComPort2_ComboBox.Text; // set the serial port name to the name in the com port text box
-                    CommLink2_SerialPort.BaudRate = Int32.Parse(BaudRate2_ComboBox.Text);
-                    CommLink2_SerialPort.Open(); // open the serial port
-                    Status_TextBox.AppendText("Serial port " + CommLink2_SerialPort.PortName + " opened." + Environment.NewLine); // send message to the status text box
+                    var selected = ComPort2_ComboBox.Text?.Trim();
+                    if (string.IsNullOrEmpty(selected))
+                    {
+                        Status_TextBox.AppendText("No COM port selected for printer control. Please select a port and try again." + Environment.NewLine);
+                        return;
+                    }
 
+                    // verify existence first to give a clear error
+                    var available = System.IO.Ports.SerialPort.GetPortNames();
+                    if (!available.Any(p => string.Equals(p, selected, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        Status_TextBox.AppendText($"COM port '{selected}' not found. Refresh the list and try again." + Environment.NewLine);
+                        GetComPorts();
+                        return;
+                    }
 
-                    Comm2Open = true;
-                    ComPort2_Button.Text = "Close COM Port";
+                    CommLink2_SerialPort.PortName = selected; // set the serial port name to the name in the com port text box
 
-                    MoveDown_Button.Enabled = true;
-                    MoveUp_Button.Enabled = true;
-                    MoveLeft_Button.Enabled = true;
-                    MoveRight_Button.Enabled = true;
-                    MoveHome_Button.Enabled = true;
-                    GetPos_Button.Enabled = true;
+                    int baud = 115200;
+                    if (!int.TryParse(BaudRate2_ComboBox.Text, out baud))
+                    {
+                        Status_TextBox.AppendText("Invalid baud rate for printer port; using default 115200." + Environment.NewLine);
+                        baud = 115200;
+                    }
+                    CommLink2_SerialPort.BaudRate = baud;
 
-                    Homed = false;
+                    try
+                    {
+                        CommLink2_SerialPort.Open(); // open the serial port
+                        Status_TextBox.AppendText("Serial port " + CommLink2_SerialPort.PortName + " opened." + Environment.NewLine); // send message to the status text box
+
+                        Comm2Open = true;
+                        ComPort2_Button.Text = "Close COM Port";
+
+                        MoveDown_Button.Enabled = true;
+                        MoveUp_Button.Enabled = true;
+                        MoveLeft_Button.Enabled = true;
+                        MoveRight_Button.Enabled = true;
+                        MoveHome_Button.Enabled = true;
+                        GetPos_Button.Enabled = true;
+
+                        Homed = false;
+                    }
+                    catch (UnauthorizedAccessException uaex)
+                    {
+                        Status_TextBox.AppendText($"Access denied opening '{selected}': {uaex.Message}" + Environment.NewLine);
+                    }
+                    catch (System.IO.IOException ioex)
+                    {
+                        Status_TextBox.AppendText($"I/O error opening '{selected}': {ioex.Message}" + Environment.NewLine);
+                        GetComPorts();
+                    }
+                    catch (ArgumentException aex)
+                    {
+                        Status_TextBox.AppendText($"Invalid port name '{selected}': {aex.Message}" + Environment.NewLine);
+                    }
+                    catch (InvalidOperationException invex)
+                    {
+                        Status_TextBox.AppendText($"Port '{selected}' cannot be opened: {invex.Message}" + Environment.NewLine);
+                    }
+                    catch (Exception ex)
+                    {
+                        Status_TextBox.AppendText($"Unexpected error opening '{selected}': {ex.Message}" + Environment.NewLine);
+                    }
                 }
             }
             else
             {
-                CommLink2_SerialPort.Close();
+                try
+                {
+                    CommLink2_SerialPort.Close();
+                    Status_TextBox.AppendText("Serial port " + CommLink2_SerialPort.PortName + " closed." + Environment.NewLine); // send message to the status text box
+                }
+                catch (Exception ex)
+                {
+                    Status_TextBox.AppendText("Error closing serial port: " + ex.Message + Environment.NewLine);
+                }
+
                 Comm2Open = false;
                 ComPort2_Button.Text = "Open COM Port";
-                Status_TextBox.AppendText("Serial port " + CommLink2_SerialPort.PortName + " closed." + Environment.NewLine); // send message to the status text box
-
                 MoveDown_Button.Enabled = false;
                 MoveUp_Button.Enabled = false;
                 MoveLeft_Button.Enabled = false;
@@ -290,16 +403,6 @@ namespace switchTester
             }
         }
 
-        private void ComPort_ComboBox_Click(object sender, EventArgs e)
-        {
-            GetComPorts();
-        }
-
-        private void ComPort2_ComboBox_Click(object sender, EventArgs e)
-        {
-            GetComPorts();
-        }
-
         private void TxSend2_Textbox_KeyUp(object sender, KeyEventArgs e)
         {
             if (e.KeyData != Keys.Enter) return;
@@ -373,7 +476,7 @@ namespace switchTester
                 {
                     Status_TextBox.AppendText("Scale port not open — cannot get force data." + Environment.NewLine);
                 }
-                
+
                 return;
             }
 
@@ -402,7 +505,7 @@ namespace switchTester
             {
                 if (CommLink2_SerialPort.IsOpen == false)
                     ComPort2_Button.PerformClick();
-                
+
                 if (CommLink_SerialPort.IsOpen == false)
                     ComPort_Button.PerformClick();
 
@@ -437,17 +540,36 @@ namespace switchTester
                 {
                     sampleData[i].downForce = new float[steps];
                     sampleData[i].upForce = new float[steps];
+                    sampleData[i].isPressed = new bool[steps]; // initialize pressed array
                 }
 
                 averageData = new SampleData_t();
                 averageData.downForce = new float[steps];
                 averageData.upForce = new float[steps];
+                averageData.isPressed = new bool[steps]; // not used as boolean avg, but keep consistent
 
                 stepPosition = new float[steps];
                 for (int step = 0; step < steps; step++)
                 {
                     stepPosition[step] = (float)Math.Round(step * StepSize, 2);
                 }
+
+                // initialize actuation/release arrays for per-sample points
+                actuationPoint = new float[Samples];
+                releasePoint = new float[Samples];
+                for (int i = 0; i < Samples; i++)
+                {
+                    actuationPoint[i] = float.NaN;
+                    releasePoint[i] = float.NaN;
+                }
+
+                // reset running average accumulators for live plotting
+                actuationSum = 0.0;
+                actuationCount = 0;
+                releaseSum = 0.0;
+                releaseCount = 0;
+                avgActuationPoint = float.NaN;
+                avgReleasePoint = float.NaN;
 
                 InitCharts();
 
@@ -464,15 +586,12 @@ namespace switchTester
                             return;
                         }
                     }
-                    
                 }
-                
+
                 MoveAbsolute("Z", ZOffset + 1);
                 await Task.Delay((int)Math.Ceiling(700 * ZOffset), token);
                 MoveAbsolute("X", XOffset);
                 await Task.Delay((int)Math.Ceiling(10 * XOffset), token);
-                
-                
 
                 for (int sample = 0; sample < Samples; sample++)
                 {
@@ -496,16 +615,12 @@ namespace switchTester
                         // record as down stroke
                         upStroke = 0;
 
-                        GetForce();
-                        var tcs2 = _getForceTcs;
-                        if (tcs2 != null)
+                        // request force and retry automatically on invalid reads
+                        var ok = await GetForceWithRetriesAsync(token);
+                        if (!ok)
                         {
-                            var completed = await Task.WhenAny(tcs2.Task, Task.Delay(5000, token));
-                            if (completed != tcs2.Task)
-                            {
-                                Status_TextBox.AppendText("getForce timed out" + Environment.NewLine);
-                                return;
-                            }
+                            Status_TextBox.AppendText("Failed to obtain valid force after retries" + Environment.NewLine);
+                            return;
                         }
 
                         ProcessData(sample, step);
@@ -527,16 +642,12 @@ namespace switchTester
                         // record as up stroke
                         upStroke = 1;
 
-                        GetForce();
-                        var tcs2 = _getForceTcs;
-                        if (tcs2 != null)
+                        // request force and retry automatically on invalid reads
+                        var ok = await GetForceWithRetriesAsync(token);
+                        if (!ok)
                         {
-                            var completed = await Task.WhenAny(tcs2.Task, Task.Delay(5000, token));
-                            if (completed != tcs2.Task)
-                            {
-                                Status_TextBox.AppendText("getForce timed out" + Environment.NewLine);
-                                return;
-                            }
+                            Status_TextBox.AppendText("Failed to obtain valid force after retries" + Environment.NewLine);
+                            return;
                         }
 
                         ProcessData(sample, step);
@@ -545,6 +656,37 @@ namespace switchTester
                     // lift a bit between samples
                     MoveAbsolute("Z", ZOffset + 2);
                     await Task.Delay(700 * 2, token);
+                }
+
+                // Compute average actuation and release points across samples (ignore NaN entries)
+                {
+                    double sumAct = 0.0;
+                    int countAct = 0;
+                    double sumRel = 0.0;
+                    int countRel = 0;
+                    for (int s = 0; s < Samples; s++)
+                    {
+                        if (!float.IsNaN(actuationPoint[s]))
+                        {
+                            sumAct += actuationPoint[s];
+                            countAct++;
+                        }
+                        if (!float.IsNaN(releasePoint[s]))
+                        {
+                            sumRel += releasePoint[s];
+                            countRel++;
+                        }
+                    }
+
+                    avgActuationPoint = (countAct > 0) ? (float)(sumAct / countAct) : float.NaN;
+                    avgReleasePoint = (countRel > 0) ? (float)(sumRel / countRel) : float.NaN;
+
+                    Status_TextBox.AppendText($"Average actuation point: {(float.IsNaN(avgActuationPoint) ? float.NaN : Math.Round(avgActuationPoint, 2))}" + Environment.NewLine);
+                    Status_TextBox.AppendText($"Average release point: {(float.IsNaN(avgReleasePoint) ? float.NaN : Math.Round(avgReleasePoint, 2))}" + Environment.NewLine);
+
+                    // final plot to ensure final averages are displayed
+                    PlotAverageMarker(true);
+                    PlotAverageMarker(false);
                 }
 
                 GenerateCSV();
@@ -563,14 +705,97 @@ namespace switchTester
             }
         }
 
+        // Helper: request force and retry when invalid readings are returned.
+        // Returns true when a force value is available (valid or accepted after retries).
+        async Task<bool> GetForceWithRetriesAsync(CancellationToken token)
+        {
+            for (int attempt = 0; attempt <= MaxForceRetries; attempt++)
+            {
+                token.ThrowIfCancellationRequested();
+
+                // clear the last-valid flag before requesting a new reading
+                _lastForceValid = false;
+
+                GetForce();
+
+                var tcs = _getForceTcs;
+                if (tcs != null)
+                {
+                    var completed = await Task.WhenAny(tcs.Task, Task.Delay(5000, token));
+                    if (completed != tcs.Task)
+                    {
+                        Status_TextBox.AppendText("getForce timed out" + Environment.NewLine);
+                        // treat timeout as a failed attempt and allow retry
+                    }
+                }
+
+                // brief pause to allow DataReceived to set _lastForceValid
+                await Task.Delay(10, token);
+
+                if (_lastForceValid)
+                    return true;
+
+                if (attempt < MaxForceRetries)
+                {
+                    Status_TextBox.AppendText($"Invalid force reading — retrying ({attempt + 1}/{MaxForceRetries})" + Environment.NewLine);
+                    await Task.Delay(50, token);
+                }
+            }
+
+            // After exhausting retries, accept the most recent (invalid) reading and continue.
+            Status_TextBox.AppendText("Invalid force persisted after retries — accepting last value and continuing." + Environment.NewLine);
+            return true;
+        }
+
+        // helper: find nearest index in stepPosition for a given x
+        int FindNearestStepIndex(float[] positions, float x)
+        {
+            if (positions == null || positions.Length == 0) return -1;
+            int best = 0;
+            double bestDiff = Math.Abs(positions[0] - x);
+            for (int i = 1; i < positions.Length; i++)
+            {
+                double d = Math.Abs(positions[i] - x);
+                if (d < bestDiff)
+                {
+                    bestDiff = d;
+                    best = i;
+                }
+            }
+            return best;
+        }
+
         void GenerateCSV()
         {
             CSV_TextBox.Clear();
-            CSV_TextBox.AppendText("Position, DownForce, UpForce" + Environment.NewLine);
+            CSV_TextBox.AppendText("Position, DownForce, UpForce, PressedFraction" + Environment.NewLine);
             for (int step = 0; step < steps; step++)
             {
-                CSV_TextBox.AppendText((float)Math.Round(stepPosition[step], 2) + ", " + (float)Math.Round(averageData.downForce[step], 2) + ", " + (float)Math.Round(averageData.upForce[step], 2) + Environment.NewLine);
+                // compute fraction of samples where isPressed == true at this step
+                int pressedCount = 0;
+                if (sampleData != null)
+                {
+                    for (int s = 0; s < Samples; s++)
+                    {
+                        if (sampleData[s].isPressed != null && step >= 0 && step < sampleData[s].isPressed.Length)
+                        {
+                            if (sampleData[s].isPressed[step]) pressedCount++;
+                        }
+                    }
+                }
+                double fraction = (Samples > 0) ? (double)pressedCount / Samples : 0.0;
+
+                CSV_TextBox.AppendText(
+                    ((float)Math.Round(stepPosition[step], 2)).ToString() + ", " +
+                    ((float)Math.Round(averageData.downForce[step], 2)).ToString() + ", " +
+                    ((float)Math.Round(averageData.upForce[step], 2)).ToString() + ", " +
+                    Math.Round(fraction, 2).ToString() + Environment.NewLine);
             }
+
+            // append average actuation/release at bottom if available
+            CSV_TextBox.AppendText(Environment.NewLine);
+            CSV_TextBox.AppendText("AverageActuationPoint, " + (float.IsNaN(avgActuationPoint) ? "NaN" : Math.Round(avgActuationPoint, 2).ToString()) + Environment.NewLine);
+            CSV_TextBox.AppendText("AverageReleasePoint, " + (float.IsNaN(avgReleasePoint) ? "NaN" : Math.Round(avgReleasePoint, 2).ToString()) + Environment.NewLine);
         }
 
         void InitCharts()
@@ -670,53 +895,135 @@ namespace switchTester
             if (sampleData == null) return;
             if (sample < 0 || sample >= sampleData.Length) return;
             if (step < 0 || step >= steps) return;
-            if (sampleData[sample].downForce == null || sampleData[sample].upForce == null) return;
+            if (sampleData[sample].downForce == null || sampleData[sample].upForce == null || sampleData[sample].isPressed == null) return;
 
+            // Determine new pressed state
+            bool newPressed = (pinState == 0x02);
+
+            // Determine previous pressed state depending on stroke direction:
+            // - On down stroke (upStroke == 0) we progressed from 0..N so previous index is step-1.
+            // - On up stroke (upStroke == 1) we progress from N..0 so previous measurement is at step+1.
+            bool prevPressed = false;
+            if (upStroke == 0)
+            {
+                prevPressed = (step > 0) && sampleData[sample].isPressed[step - 1];
+            }
+            else
+            {
+                prevPressed = (step < (steps - 1)) && sampleData[sample].isPressed[step + 1];
+            }
+
+            bool isActuationEdge = !prevPressed && newPressed;   // not pressed -> pressed (actuation)
+            bool isReleaseEdge = prevPressed && !newPressed;     // pressed -> not pressed (release)
+
+            // store pressed state
+            sampleData[sample].isPressed[step] = newPressed;
+
+            // store force in data arrays
             if (upStroke == 1)
             {
                 sampleData[sample].upForce[step] = force;
-
-                // update corresponding series on Sample_Chart if present
-                if (SampleUpStroke_Chart == null) return;
-
-                if (sample < 0 || sample >= SampleUpStroke_Chart.Series.Count) return;
-
-                var series = SampleUpStroke_Chart.Series[sample];
-
-                // Chart controls must be updated on UI thread
-                if (SampleUpStroke_Chart.InvokeRequired)
-                {
-                    SampleUpStroke_Chart.BeginInvoke(new Action(() => series.Points.AddXY(stepPosition[step], force)));
-                }
-                else
-                {
-                    series.Points.AddXY(stepPosition[step], force);
-                }
             }
             else
             {
                 sampleData[sample].downForce[step] = force;
+            }
 
-                // update corresponding series on Sample_Chart if present
-                if (SampleDownStroke_Chart == null) return;
-
-                if (sample < 0 || sample >= SampleDownStroke_Chart.Series.Count) return;
-
-                var series = SampleDownStroke_Chart.Series[sample];
-
-                // Chart controls must be updated on UI thread
-                if (SampleDownStroke_Chart.InvokeRequired)
+            // Only record actuation on down stroke and release on up stroke.
+            if (isActuationEdge && upStroke == 0)
+            {
+                // update running sums for live average
+                if (float.IsNaN(actuationPoint[sample]))
                 {
-                    SampleDownStroke_Chart.BeginInvoke(new Action(() => series.Points.AddXY(stepPosition[step], force)));
+                    actuationSum += stepPosition[step];
+                    actuationCount++;
                 }
                 else
                 {
-                    series.Points.AddXY(stepPosition[step], force);
+                    // replace previous contribution
+                    actuationSum += stepPosition[step] - actuationPoint[sample];
                 }
+
+                actuationPoint[sample] = stepPosition[step];
+                avgActuationPoint = (actuationCount > 0) ? (float)(actuationSum / actuationCount) : float.NaN;
+
+                Status_TextBox.AppendText("Sample " + sample + " actuated at step " + step + " (position " + stepPosition[step] + ")" + Environment.NewLine);
+
+                // NOTE: removed early PlotAverageMarker(true) call so marker uses updated avg Y (see updateAvgPoint below)
+            }
+            if (isReleaseEdge && upStroke == 1)
+            {
+                if (float.IsNaN(releasePoint[sample]))
+                {
+                    releaseSum += stepPosition[step];
+                    releaseCount++;
+                }
+                else
+                {
+                    releaseSum += stepPosition[step] - releasePoint[sample];
+                }
+
+                releasePoint[sample] = stepPosition[step];
+                avgReleasePoint = (releaseCount > 0) ? (float)(releaseSum / releaseCount) : float.NaN;
+
+                Status_TextBox.AppendText("Sample " + sample + " released at step " + step + " (position " + stepPosition[step] + ")" + Environment.NewLine);
+
+                // NOTE: removed early PlotAverageMarker(false) call so marker uses updated avg Y (see updateAvgPoint below)
             }
 
+            // Update sample series (with markers for edges). Must do UI updates on UI thread.
+            if (upStroke == 1)
+            {
+                if (SampleUpStroke_Chart == null) goto updateAverage;
+                if (sample < 0 || sample >= SampleUpStroke_Chart.Series.Count) goto updateAverage;
 
+                var series = SampleUpStroke_Chart.Series[sample];
 
+                Action addPointAndMaybeMark = () =>
+                {
+                    var dpIndex = series.Points.AddXY(stepPosition[step], force);
+                    // mark release only if it happened on this up stroke measurement
+                    if (isReleaseEdge && upStroke == 1)
+                    {
+                        var dp = series.Points[dpIndex];
+                        dp.MarkerStyle = MarkerStyle.Circle;
+                        dp.MarkerSize = 6;
+                        dp.MarkerColor = Color.Green;
+                    }
+                };
+
+                if (SampleUpStroke_Chart.InvokeRequired)
+                    SampleUpStroke_Chart.BeginInvoke(addPointAndMaybeMark);
+                else
+                    addPointAndMaybeMark();
+            }
+            else
+            {
+                if (SampleDownStroke_Chart == null) goto updateAverage;
+                if (sample < 0 || sample >= SampleDownStroke_Chart.Series.Count) goto updateAverage;
+
+                var series = SampleDownStroke_Chart.Series[sample];
+
+                Action addPointAndMaybeMark = () =>
+                {
+                    var dpIndex = series.Points.AddXY(stepPosition[step], force);
+                    // mark actuation only if it happened on this down stroke measurement
+                    if (isActuationEdge && upStroke == 0)
+                    {
+                        var dp = series.Points[dpIndex];
+                        dp.MarkerStyle = MarkerStyle.Diamond;
+                        dp.MarkerSize = 6;
+                        dp.MarkerColor = Color.Red;
+                    }
+                };
+
+                if (SampleDownStroke_Chart.InvokeRequired)
+                    SampleDownStroke_Chart.BeginInvoke(addPointAndMaybeMark);
+                else
+                    addPointAndMaybeMark();
+            }
+
+        updateAverage:
             // --- Update running average on Average_Chart live ---
             if (Average_Chart == null) return;
             if (Average_Chart.Series.Count == 0) return;
@@ -769,6 +1076,10 @@ namespace switchTester
                     area.AxisX.Maximum = double.NaN;
                     area.RecalculateAxesScale();
                 }
+
+                // Refresh average markers here after avg series point has been updated so marker Y is correct
+                PlotAverageMarker(true);
+                PlotAverageMarker(false);
             };
 
             if (Average_Chart.InvokeRequired)
@@ -781,6 +1092,17 @@ namespace switchTester
             }
         }
 
+        // running accumulators for live average actuation/release plotting
+        double actuationSum = 0.0;
+        int actuationCount = 0;
+        double releaseSum = 0.0;
+        int releaseCount = 0;
+
+        float[] actuationPoint;
+        float[] releasePoint;
+
+        float avgActuationPoint;
+        float avgReleasePoint;
         void TareScale()
         {
             if (CommLink_SerialPort == null || !CommLink_SerialPort.IsOpen)
@@ -794,11 +1116,57 @@ namespace switchTester
             Status_TextBox.AppendText("Tareing scale" + Environment.NewLine);
         }
 
+        // Update or add the average marker for actuation (isActuation==true) or release (false)
+        void PlotAverageMarker(bool isActuation)
+        {
+            if (Average_Chart == null || Average_Chart.ChartAreas.Count == 0) return;
 
+            // In method PlotAverageMarker, change the lambda parameter name in FirstOrDefault to avoid shadowing the outer variable 's'
+            Action plot = () =>
+            {
+                string seriesName = isActuation ? "AvgActuationLive" : "AvgReleaseLive";
+                var existing = Average_Chart.Series.FirstOrDefault(ser => ser.Name == seriesName);
+                if (existing != null) Average_Chart.Series.Remove(existing);
+
+                float avgX = isActuation ? avgActuationPoint : avgReleasePoint;
+                if (float.IsNaN(avgX)) return;
+
+                int idx = FindNearestStepIndex(stepPosition, avgX);
+                double y = 0.0;
+                if (idx >= 0)
+                {
+                    if (isActuation && idx < averageData.downForce.Length)
+                        y = averageData.downForce[idx];
+                    else if (!isActuation && idx < averageData.upForce.Length)
+                        y = averageData.upForce[idx];
+                }
+
+                var s = Average_Chart.Series.Add(seriesName);
+                s.ChartType = SeriesChartType.Point;
+                s.MarkerStyle = isActuation ? MarkerStyle.Diamond : MarkerStyle.Circle;
+                s.MarkerSize = 10;
+                s.Color = isActuation ? Color.Red : Color.Green;
+                s.Points.Clear();
+                s.Points.AddXY(avgX, y);
+                s.IsVisibleInLegend = true;
+                s.LegendText = isActuation ? "Actuation" : "Release";
+            };
+
+            if (Average_Chart.InvokeRequired)
+                Average_Chart.BeginInvoke(plot);
+            else
+                plot();
+        }
+
+        byte pinState = 0x00;
         private void CommLink_SerialPort_DataReceived(object sender, System.IO.Ports.SerialDataReceivedEventArgs e)
         {
             try
             {
+                byte[] pinStateArray = new byte[1];
+                string pinStateString = CommLink_SerialPort.ReadLine();
+                bool pinParsed = byte.TryParse(pinStateString, out pinState);
+
                 string raw = CommLink_SerialPort.ReadLine();
                 // Try parse numeric force value; be tolerant of non-numeric responses
                 float parsedForce;
@@ -810,7 +1178,18 @@ namespace switchTester
 
                 // Append the raw line to RX textbox (UI thread)
                 RX_TextBox.BeginInvoke(new Action(() =>
-                    RX_TextBox.AppendText((parsed ? parsedForce.ToString() : raw) + Environment.NewLine)));
+                    RX_TextBox.AppendText((parsed ? "0x" + pinState.ToString("X2") + " " + parsedForce.ToString() : raw) + Environment.NewLine)));
+
+                // Decide validity now and set flag for callers that are waiting
+                bool valid = parsed && !(force >= 500 || force <= -100);
+                _lastForceValid = valid;
+
+                if (!valid)
+                {
+                    RX_TextBox.BeginInvoke(new Action(() =>
+                        RX_TextBox.AppendText("Invalid force reading received." + Environment.NewLine)));
+                    // do NOT call GetForce() from the serial thread; retries are driven by the caller
+                }
 
                 // Signal getForce completion if someone is waiting (thread-safe exchange)
                 var tcs = System.Threading.Interlocked.Exchange(ref _getForceTcs, null);
@@ -845,7 +1224,6 @@ namespace switchTester
         {
             TareScale();
         }
-
 
         private void GetPos_Button_Click(object sender, EventArgs e)
         {
@@ -961,11 +1339,114 @@ namespace switchTester
             }
         }
 
+        // --- new combo settings persistence ---
+        private string ComboSettingsFilePath()
+        {
+            var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "switchTester");
+            try { Directory.CreateDirectory(dir); } catch { /* best-effort */ }
+            return Path.Combine(dir, "comboSettings.xml");
+        }
+
+        private void SaveComboBoxSettings()
+        {
+            try
+            {
+                var list = new List<ComboEntry>
+                {
+                    new ComboEntry(nameof(ComPort_ComboBox), ComPort_ComboBox?.Text ?? string.Empty),
+                    new ComboEntry(nameof(ComPort2_ComboBox), ComPort2_ComboBox?.Text ?? string.Empty),
+                    new ComboEntry(nameof(BaudRate_ComboBox), BaudRate_ComboBox?.Text ?? string.Empty),
+                    new ComboEntry(nameof(BaudRate2_ComboBox), BaudRate2_ComboBox?.Text ?? string.Empty),
+                    new ComboEntry(nameof(StepAmount_ComboBox), StepAmount_ComboBox?.Text ?? string.Empty),
+                    new ComboEntry(nameof(XOffset_ComboBox), XOffset_ComboBox?.Text ?? string.Empty),
+                    new ComboEntry(nameof(ZOffset_ComboBox), ZOffset_ComboBox?.Text ?? string.Empty),
+                    new ComboEntry(nameof(Travel_ComboBox), Travel_ComboBox?.Text ?? string.Empty),
+                    new ComboEntry(nameof(StepSize_ComboBox), StepSize_ComboBox?.Text ?? string.Empty),
+                    new ComboEntry(nameof(Samples_ComboBox), Samples_ComboBox?.Text ?? string.Empty),
+                    new ComboEntry(nameof(Profile_ComboBox), Profile_ComboBox?.Text ?? string.Empty)
+                };
+
+                var path = ComboSettingsFilePath();
+                using (var fs = File.Create(path))
+                {
+                    var xs = new System.Xml.Serialization.XmlSerializer(typeof(List<ComboEntry>));
+                    xs.Serialize(fs, list);
+                }
+            }
+            catch (Exception ex)
+            {
+                Status_TextBox.AppendText("Error saving combo settings: " + ex.Message + Environment.NewLine);
+            }
+        }
+
+        private void LoadComboBoxSettings()
+        {
+            try
+            {
+                var path = ComboSettingsFilePath();
+                if (!File.Exists(path)) return;
+
+                List<ComboEntry> list;
+                using (var fs = File.OpenRead(path))
+                {
+                    var xs = new System.Xml.Serialization.XmlSerializer(typeof(List<ComboEntry>));
+                    list = (List<ComboEntry>)xs.Deserialize(fs);
+                }
+
+                var dict = list.Where(e => !string.IsNullOrEmpty(e.Name)).ToDictionary(e => e.Name, e => e.Value);
+
+                // helper to apply value to combo: prefer selecting existing item, otherwise set Text
+                Action<string, System.Windows.Forms.ComboBox> apply = (name, cb) =>
+                {
+                    if (cb == null) return;
+                    string v;
+                    if (!dict.TryGetValue(name, out v)) return;
+                    if (string.IsNullOrEmpty(v)) return;
+
+                    // If the item exists in the items collection, select it; otherwise set Text (user-typed)
+                    if (cb.Items.Contains(v))
+                        cb.SelectedItem = v;
+                    else
+                        cb.Text = v;
+                };
+
+                apply(nameof(ComPort_ComboBox), ComPort_ComboBox);
+                apply(nameof(ComPort2_ComboBox), ComPort2_ComboBox);
+                apply(nameof(BaudRate_ComboBox), BaudRate_ComboBox);
+                apply(nameof(BaudRate2_ComboBox), BaudRate2_ComboBox);
+                apply(nameof(StepAmount_ComboBox), StepAmount_ComboBox);
+                apply(nameof(XOffset_ComboBox), XOffset_ComboBox);
+                apply(nameof(ZOffset_ComboBox), ZOffset_ComboBox);
+                apply(nameof(Travel_ComboBox), Travel_ComboBox);
+                apply(nameof(StepSize_ComboBox), StepSize_ComboBox);
+                apply(nameof(Samples_ComboBox), Samples_ComboBox);
+                apply(nameof(Profile_ComboBox), Profile_ComboBox);
+            }
+            catch (Exception ex)
+            {
+                Status_TextBox.AppendText("Error loading combo settings: " + ex.Message + Environment.NewLine);
+            }
+        }
+        // --- end combo settings persistence ---
+
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
             try { SaveProfiles(); } catch { /* swallow - logging already handled in SaveProfiles */ }
+            try { SaveComboBoxSettings(); } catch { /* swallow - logging already handled in SaveComboBoxSettings */ }
             base.OnFormClosing(e);
         }
+
+        private void CopyCSV_Button_Click(object sender, EventArgs e)
+        {
+            CSV_TextBox.SelectAll();
+            CSV_TextBox.Copy();
+        }
+
+        private void GetComPorts_Button_Click(object sender, EventArgs e)
+        {
+            GetComPorts();
+        }
+
     }
 
     public class ProfileEntry
@@ -981,6 +1462,21 @@ namespace switchTester
             Name = name;
             ZOffset = z;
             Travel = t;
+        }
+    }
+
+    // small helper class used for serializing combo values
+    public class ComboEntry
+    {
+        public string Name { get; set; }
+        public string Value { get; set; }
+
+        public ComboEntry() { }
+
+        public ComboEntry(string name, string value)
+        {
+            Name = name;
+            Value = value;
         }
     }
 

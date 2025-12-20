@@ -26,7 +26,8 @@ const int clockPin = 9;  // SCK
 float scale = 93.924530;    // Calibration factor (raw units per gram)
 int samples = 10;
 
-
+bool pin_state = false;
+const int switchPin = 3;
 
 //use scale.set_offset(-102079); and scale.set_scale(93.924530);
 
@@ -36,6 +37,9 @@ void setup() {
   Serial.begin(115200);
   loadcell.begin();
 
+  pinMode(switchPin, INPUT);
+  attachInterrupt(digitalPinToInterrupt(switchPin), pin_change, CHANGE);
+
   loadcell.setScale(scale);  // Set scale factor
   loadcell.tare(50);           // Calibrate zero (tare)
   Serial.println("Tare done. Starting weight measurement...");
@@ -43,6 +47,9 @@ void setup() {
 
 void loop() {
   serial_receive();
+
+  // delay(100);
+  // get_force();
 
 }
 
@@ -62,6 +69,11 @@ void serial_receive() {
   }
 }
 
+void serial_send(unsigned char cmd_byte, float data) {
+  Serial.println(cmd_byte);
+  Serial.println(data, 2);
+}
+
 void get_force() {
   float samples_weight = 0;
   for ( int i = samples; i; i--){
@@ -70,5 +82,20 @@ void get_force() {
   }
   float average_weight = samples_weight/samples;
 
-  Serial.println(average_weight, 2);
+  if (pin_state) {
+    serial_send(0x02, average_weight);
+  }
+  else {
+    serial_send(0x01, average_weight);
+  }
+}
+
+void pin_change() {
+  if (digitalRead(switchPin)) {
+    pin_state = false;
+  }
+  else {
+    pin_state = true;
+  }
+  
 }
