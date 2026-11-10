@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Switch Tester (Web Serial Native)</title>
+    <!-- Chart.js for data visualization -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --bg-color: #1e1e2e;
+            --panel-bg: #282a36;
+            --card-bg: #44475a;
+            --text-color: #f8f8f2;
+            --accent-color: #bd93f9;
+            --border-color: #6272a4;
+            --btn-green: #50fa7b;
+            --btn-red: #ff5555;
+            --btn-blue: #8be9fd;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            padding: 15px;
+            font-size: 13px;
+        }
+
+        .header-title {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .grid-container {
+            display: grid;
+            grid-template-columns: 280px 1fr 340px;
+            gap: 15px;
+        }
+
+        .panel {
+            background-color: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .panel-title {
+            font-size: 14px;
+            font-weight: bold;
+            color: var(--accent-color);
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 5px;
+            margin-bottom: 5px;
+        }
+
+        .form-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+        }
+
+        label { font-size: 12px; }
+
+        select, input[type="text"], textarea {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 5px;
+            font-size: 12px;
+        }
+
+        button {
+            background-color: var(--card-bg);
+            color: var(--text-color);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            padding: 6px 12px;
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+
+        button:hover { filter: brightness(1.2); }
+        button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+        .btn-success { background-color: #28a745; color: white; }
+        .btn-danger { background-color: var(--btn-red); color: white; }
+        .btn-primary { background-color: #6272a4; color: white; }
+        .btn-start {
+            height: 60px;
+            font-size: 18px;
+            font-weight: bold;
+            background-color: #50fa7b;
+            color: #282a36;
+        }
+
+        /* D-Pad Controller Layout */
+        .dpad-container {
+            display: grid;
+            grid-template-columns: repeat(3, 50px);
+            grid-template-rows: repeat(3, 50px);
+            gap: 5px;
+            justify-content: center;
+            align-items: center;
+            margin: 10px 0;
+        }
+
+        .dpad-container button {
+            width: 50px;
+            height: 50px;
+            padding: 0;
+        }
+
+        .dpad-center {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        /* Terminal Logs */
+        .terminal {
+            width: 100%;
+            height: 90px;
+            resize: none;
+            font-family: 'Consolas', monospace;
+            font-size: 11px;
+            background: #111;
+            color: #00ff66;
+        }
+
+        /* Taller Charts Layout */
+        .charts-column {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+
+        .chart-box {
+            background-color: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 10px;
+            position: relative;
+        }
+
+        .main-chart { height: 550px; }
+        .sub-charts {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+        .sub-chart { height: 300px; }
+    </style>
+</head>
+<body>
+
+    <div class="header-title">
+        <h2>Switch Tester (Web Serial Native)</h2>
+        <div id="connection-status" style="font-weight: bold; color: #ff5555;">Ports Disconnected</div>
+    </div>
+
+    <div class="grid-container">
+        <!-- LEFT PANEL: Scale Port & Data -->
+        <div class="panel">
+            <div class="panel-title">Scale Serial Port (115200 Baud)</div>
+            <button id="ComPort_Button" class="btn-success">Connect Scale Port</button>
+
+            <div class="form-row" style="margin-top: 5px;">
+                <button id="Tare_Button" style="flex: 1;" disabled>Tare</button>
+                <button id="GetForce_Button" style="flex: 1;" disabled>Get Force</button>
+            </div>
+
+            <div class="panel-title" style="margin-top: 10px;">Scale Status & RX Logs</div>
+            <label>Status Log:</label>
+            <textarea id="Status_TextBox" class="terminal" readonly></textarea>
+            <label>RX Raw Data:</label>
+            <textarea id="RX_TextBox" class="terminal" readonly></textarea>
+
+            <div class="panel-title" style="margin-top: 10px;">CSV Data</div>
+            <textarea id="CSV_TextBox" class="terminal" style="height: 120px;" readonly></textarea>
+            <div class="form-row">
+                <button id="CopyCSV_Button" style="flex: 1;">Copy</button>
+                <button id="SaveCSV_Button" class="btn-success" style="flex: 1;">Save CSV</button>
+            </div>
+        </div>
+
+        <!-- CENTER PANEL: Real-time Taller Charts -->
+        <div class="charts-column">
+            <div class="chart-box main-chart">
+                <canvas id="Average_Chart"></canvas>
+            </div>
+            <div class="sub-charts">
+                <div class="chart-box sub-chart">
+                    <canvas id="SampleDownStroke_Chart"></canvas>
+                </div>
+                <div class="chart-box sub-chart">
+                    <canvas id="SampleUpStroke_Chart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <!-- RIGHT PANEL: Printer Port & Manual Controls -->
+        <div class="panel">
+            <div class="panel-title">Printer / CNC Port (115200 Baud)</div>
+            <button id="ComPort2_Button" class="btn-success">Connect Printer Port</button>
+
+            <div class="panel-title" style="margin-top: 10px;">Manual Control</div>
+            <div class="dpad-container">
+                <div></div>
+                <button id="MoveUp_Button" disabled>Up</button>
+                <button id="MoveHome_Button" disabled>Home</button>
+                
+                <button id="MoveLeft_Button" disabled>Left</button>
+                <div class="dpad-center">
+                    <select id="StepAmount_ComboBox" style="width: 48px;">
+                        <option value="0.01">0.01</option>
+                        <option value="0.1">0.1</option>
+                        <option value="0.5">0.5</option>
+                        <option value="1" selected>1</option>
+                        <option value="5">5</option>
+                        <option value="10">10</option>
+                    </select>
+                </div>
+                <button id="MoveRight_Button" disabled>Right</button>
+                
+                <div></div>
+                <button id="MoveDown_Button" disabled>Down</button>
+                <button id="GetPos_Button" disabled>Pos</button>
+            </div>
+
+            <div class="panel-title">Test Starting Position</div>
+            <div style="background: rgba(0,0,0,0.2); padding: 8px; border-radius: 4px; margin-bottom: 5px;">
+                <div style="font-size: 11px; margin-bottom: 4px;">Captured Start Position:</div>
+                <div id="CurrentPosDisplay" style="font-family: monospace; color: #50fa7b; font-weight: bold;">X: Not Set | Z: Not Set</div>
+            </div>
+            <button id="SetCurrentPos_Button" class="btn-primary" style="width: 100%; margin-bottom: 8px;" disabled>Set Current Position as Start</button>
+
+            <div class="panel-title">Test Parameters</div>
+            <div class="form-row"><label>Travel (mm):</label><input type="text" id="Travel_Input" value="3.0" style="width: 75px;"></div>
+            <div class="form-row"><label>Step Size (mm):</label><input type="text" id="StepSize_Input" value="0.1" style="width: 75px;"></div>
+            <div class="form-row"><label>Samples:</label><input type="text" id="Samples_Input" value="1" style="width: 75px;"></div>
+
+            <button id="Start_Button" class="btn-start" style="margin-top: 10px;" disabled>START TEST</button>
+
+            <div class="panel-title" style="margin-top: 10px;">CNC Terminal</div>
+            <label>Printer RX:</label><textarea id="Rx2_TextBox" class="terminal" style="height: 50px;" readonly></textarea>
+            <label>Printer TX:</label><textarea id="Tx2_TextBox" class="terminal" style="height: 50px;" readonly></textarea>
+            <input type="text" id="TxSend2_Textbox" placeholder="G-code command..." style="margin-top: 4px;">
+        </div>
+    </div>
+
+    <script>
+        let scalePort = null;
+        let printerPort = null;
+        let scaleReader = null, printerReader = null;
+
+        let force = 0.0;
+        let pinState = 0x00;
+        let homed = false;
+        let isStroking = false;
+        let strokeCancelled = false;
+
+        let capturedX = null;
+        let capturedZ = null;
+
+        // --- LocalStorage Parameter Loading & Saving ---
+        function loadSettings() {
+            if (localStorage.getItem('switch_travel')) document.getElementById('Travel_Input').value = localStorage.getItem('switch_travel');
+            if (localStorage.getItem('switch_stepSize')) document.getElementById('StepSize_Input').value = localStorage.getItem('switch_stepSize');
+            if (localStorage.getItem('switch_samples')) document.getElementById('Samples_Input').value = localStorage.getItem('switch_samples');
+            
+            if (localStorage.getItem('switch_capturedX') && localStorage.getItem('switch_capturedZ')) {
+                capturedX = parseFloat(localStorage.getItem('switch_capturedX'));
+                capturedZ = parseFloat(localStorage.getItem('switch_capturedZ'));
+                document.getElementById('CurrentPosDisplay').innerText = `X: ${capturedX.toFixed(2)} | Z: ${capturedZ.toFixed(2)}`;
+            }
+        }
+
+        function saveSettings() {
+            localStorage.setItem('switch_travel', document.getElementById('Travel_Input').value);
+            localStorage.setItem('switch_stepSize', document.getElementById('StepSize_Input').value);
+            localStorage.setItem('switch_samples', document.getElementById('Samples_Input').value);
+            if (capturedX !== null && capturedZ !== null) {
+                localStorage.setItem('switch_capturedX', capturedX);
+                localStorage.setItem('switch_capturedZ', capturedZ);
+            }
+        }
+
+        ['Travel_Input', 'StepSize_Input', 'Samples_Input'].forEach(id => {
+            document.getElementById(id).oninput = saveSettings;
+        });
+
+        window.onload = loadSettings;
+
+        const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+        function appendLog(targetId, text) {
+            const el = document.getElementById(targetId);
+            if (el) {
+                el.value += text;
+                el.scrollTop = el.scrollHeight;
+            }
+        }
+
+        // --- Chart.js Initializations ---
+        const commonOptions = { 
+            responsive: true, 
+            maintainAspectRatio: false, 
+            scales: { 
+                x: { type: 'linear', title: { display: true, text: 'Travel (mm)' } }, 
+                y: { title: { display: true, text: 'Force (g)' }, min: 0 } 
+            } 
+        };
+
+        const avgChart = new Chart(document.getElementById('Average_Chart').getContext('2d'), {
+            type: 'line',
+            data: { datasets: [
+                { label: 'Down Stroke', borderColor: '#ff79c6', data: [], borderWidth: 2, pointRadius: 0 }, 
+                { label: 'Up Stroke', borderColor: '#8be9fd', data: [], borderWidth: 2, pointRadius: 0 }
+            ] },
+            options: { ...commonOptions, plugins: { title: { display: true, text: 'Average Force vs Displacement' } } }
+        });
+
+        const downChart = new Chart(document.getElementById('SampleDownStroke_Chart').getContext('2d'), {
+            type: 'line',
+            data: { datasets: [] },
+            options: { ...commonOptions, plugins: { title: { display: true, text: 'Sample Down Strokes' } } }
+        });
+
+        const upChart = new Chart(document.getElementById('SampleUpStroke_Chart').getContext('2d'), {
+            type: 'line',
+            data: { datasets: [] },
+            options: { ...commonOptions, plugins: { title: { display: true, text: 'Sample Up Strokes' } } }
+        });
+
+        function initSampleCharts(samples) {
+            const colors = ['#ff5555', '#50fa7b', '#8be9fd', '#ffb86c', '#bd93f9', '#f1fa8c', '#ff79c6', '#6272a4', '#525b76', '#ffffff'];
+            downChart.data.datasets = [];
+            upChart.data.datasets = [];
+
+            for (let i = 0; i < samples; i++) {
+                const color = colors[i % colors.length];
+                downChart.data.datasets.push({ label: `Sample ${i}`, borderColor: color, data: [], borderWidth: 1, pointRadius: 0 });
+                upChart.data.datasets.push({ label: `Sample ${i}`, borderColor: color, data: [], borderWidth: 1, pointRadius: 0 });
+            }
+            downChart.update();
+            upChart.update();
+        }
+
+        // --- Scale Web Serial Connection (115200 Fixed Baud) ---
+        document.getElementById('ComPort_Button').onclick = async () => {
+            if (!('serial' in navigator)) {
+                alert('Web Serial API not supported in this browser. Use Chrome or Edge.');
+                return;
+            }
+
+            try {
+                if (scalePort) {
+                    if (scaleReader) await scaleReader.cancel();
+                    await scalePort.close();
+                    scalePort = null;
+                    document.getElementById('ComPort_Button').innerText = 'Connect Scale Port';
+                    document.getElementById('ComPort_Button').className = 'btn-success';
+                    document.getElementById('Tare_Button').disabled = true;
+                    document.getElementById('GetForce_Button').disabled = true;
+                    appendLog('Status_TextBox', 'Scale port closed.\n');
+                    return;
+                }
+
+                scalePort = await navigator.serial.requestPort();
+                await scalePort.open({ baudRate: 115200 });
+
+                document.getElementById('ComPort_Button').innerText = 'Close Scale Port';
+                document.getElementById('ComPort_Button').className = 'btn-danger';
+                document.getElementById('Tare_Button').disabled = false;
+                document.getElementById('GetForce_Button').disabled = false;
+                appendLog('Status_TextBox', 'Scale port connected at 115200 baud.\n');
+
+                readScaleLoop();
+            } catch (err) {
+                appendLog('Status_TextBox', `Scale connection error: ${err.message}\n`);
+            }
+        };
+
+        async function readScaleLoop() {
+            const textDecoder = new TextDecoderStream();
+            scalePort.readable.pipeTo(textDecoder.writable);
+            scaleReader = textDecoder.readable.getReader();
+            let buffer = '';
+
+            try {
+                while (true) {
+                    const { value, done } = await scaleReader.read();
+                    if (done) break;
+                    if (value) {
+                        buffer += value;
+                        let lines = buffer.split(/\r?\n/);
+                        buffer = lines.pop();
+
+                        for (let line of lines) {
+                            const trimmed = line.trim();
+                            if (trimmed.length > 0) {
+                                appendLog('RX_TextBox', trimmed + '\n');
+                                const parsed = parseFloat(trimmed);
+                                if (!isNaN(parsed)) force = parsed;
+                            }
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error(err);
+            } finally {
+                scaleReader.releaseLock();
+            }
+        }
+
+        // --- Printer / CNC Web Serial Connection (115200 Fixed Baud) ---
+        document.getElementById('ComPort2_Button').onclick = async () => {
+            try {
+                if (printerPort) {
+                    if (printerReader) await printerReader.cancel();
+                    await printerPort.close();
+                    printerPort = null;
+                    document.getElementById('ComPort2_Button').innerText = 'Connect Printer Port';
+                    document.getElementById('ComPort2_Button').className = 'btn-success';
+                    togglePrinterControls(false);
+                    appendLog('Status_TextBox', 'Printer port closed.\n');
+                    return;
+                }
+
+                printerPort = await navigator.serial.requestPort();
+                await printerPort.open({ baudRate: 115200 });
+
+                document.getElementById('ComPort2_Button').innerText = 'Close Printer Port';
+                document.getElementById('ComPort2_Button').className = 'btn-danger';
+                togglePrinterControls(true);
+                homed = false;
+                appendLog('Status_TextBox', 'Printer port connected at 115200 baud.\n');
+
+                readPrinterLoop();
+            } catch (err) {
+                appendLog('Status_TextBox', `Printer connection error: ${err.message}\n`);
+            }
+        };
+
+        async function readPrinterLoop() {
+            const textDecoder = new TextDecoderStream();
+            printerPort.readable.pipeTo(textDecoder.writable);
+            printerReader = textDecoder.readable.getReader();
+            let buffer = '';
+
+            try {
+                while (true) {
+                    const { value, done } = await printerReader.read();
+                    if (done) break;
+                    if (value) {
+                        buffer += value;
+                        let lines = buffer.split(/\r?\n/);
+                        buffer = lines.pop();
+
+                        for (let line of lines) {
+                            const trimmed = line.trim();
+                            if (trimmed.length > 0) {
+                                appendLog('Rx2_TextBox', trimmed + '\n');
+                                parseMachinePosition(trimmed);
+                            }
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error(err);
+            } finally {
+                printerReader.releaseLock();
+            }
+        }
+
+        function parseMachinePosition(response) {
+            const xMatch = response.match(/X:([-\d.]+)/);
+            const zMatch = response.match(/Z:([-\d.]+)/);
+
+            if (xMatch && zMatch) {
+                capturedX = parseFloat(xMatch[1]);
+                capturedZ = parseFloat(zMatch[1]);
+                document.getElementById('CurrentPosDisplay').innerText = `X: ${capturedX.toFixed(2)} | Z: ${capturedZ.toFixed(2)}`;
+                saveSettings();
+                appendLog('Status_TextBox', `Captured position -> X: ${capturedX}, Z: ${capturedZ}\n`);
+            }
+        }
+
+        function togglePrinterControls(enable) {
+            document.getElementById('MoveUp_Button').disabled = !enable;
+            document.getElementById('MoveDown_Button').disabled = !enable;
+            document.getElementById('MoveLeft_Button').disabled = !enable;
+            document.getElementById('MoveRight_Button').disabled = !enable;
+            document.getElementById('MoveHome_Button').disabled = !enable;
+            document.getElementById('GetPos_Button').disabled = !enable;
+            document.getElementById('SetCurrentPos_Button').disabled = !enable;
+            document.getElementById('Start_Button').disabled = !enable;
+        }
+
+        async function writePrinter(cmd) {
+            if (!printerPort || !printerPort.writable) return;
+            const encoder = new TextEncoder();
+            const writer = printerPort.writable.getWriter();
+            await writer.write(encoder.encode(cmd + '\n'));
+            writer.releaseLock();
+            appendLog('Tx2_TextBox', cmd + '\n');
+        }
+
+        async function writeScale(bytes) {
+            if (!scalePort || !scalePort.writable) return;
+            const writer = scalePort.writable.getWriter();
+            await writer.write(new Uint8Array(bytes));
+            writer.releaseLock();
+        }
+
+        // --- Manual Controls & Position Setting (No Popup) ---
+        document.getElementById('Tare_Button').onclick = () => { writeScale([0x02]); appendLog('Status_TextBox', 'Taring scale...\n'); };
+        document.getElementById('GetForce_Button').onclick = () => { writeScale([0x01]); appendLog('Status_TextBox', `Requested force. Current value: ${force}\n`); };
+
+        document.getElementById('MoveUp_Button').onclick = () => writePrinter(`G91\nG0 Z+${document.getElementById('StepAmount_ComboBox').value}`);
+        document.getElementById('MoveDown_Button').onclick = () => writePrinter(`G91\nG0 Z-${document.getElementById('StepAmount_ComboBox').value}`);
+        document.getElementById('MoveLeft_Button').onclick = () => writePrinter(`G91\nG0 X-${document.getElementById('StepAmount_ComboBox').value}`);
+        document.getElementById('MoveRight_Button').onclick = () => writePrinter(`G91\nG0 X+${document.getElementById('StepAmount_ComboBox').value}`);
+        document.getElementById('MoveHome_Button').onclick = () => { writePrinter('G28 X Z'); homed = true; };
+        
+        document.getElementById('GetPos_Button').onclick = () => writePrinter('M114');
+        document.getElementById('SetCurrentPos_Button').onclick = () => {
+            writePrinter('M114'); // Silently query position; parseMachinePosition will update and save it automatically
+            appendLog('Status_TextBox', 'Querying current position for start point...\n');
+        };
+
+        document.getElementById('TxSend2_Textbox').onkeyup = (e) => {
+            if (e.key === 'Enter') {
+                writePrinter(e.target.value);
+                e.target.value = '';
+            }
+        };
+
+        // --- Automated Stroke Test ---
+        document.getElementById('Start_Button').onclick = async (e) => {
+            if (capturedX === null || capturedZ === null) {
+                alert('Please click "Set Current Position as Start" first.');
+                return;
+            }
+
+            isStroking = !isStroking;
+            e.target.innerText = isStroking ? 'STOP TEST' : 'START TEST';
+            e.target.className = isStroking ? 'btn-start btn-danger' : 'btn-start';
+
+            if (isStroking) {
+                strokeCancelled = false;
+                await runStrokeTest();
+                isStroking = false;
+                e.target.innerText = 'START TEST';
+                e.target.className = 'btn-start';
+            } else {
+                strokeCancelled = true;
+            }
+        };
+
+        async function runStrokeTest() {
+            try {
+                const Travel = parseFloat(document.getElementById('Travel_Input').value);
+                const StepSize = parseFloat(document.getElementById('StepSize_Input').value);
+                const Samples = parseInt(document.getElementById('Samples_Input').value);
+
+                const baseSteps = StepSize > 0 ? Math.floor(Travel / StepSize) : 0;
+                const steps = baseSteps + 1;
+
+                let sampleData = Array.from({ length: Samples }, () => ({
+                    downForce: new Array(steps).fill(0.0),
+                    upForce: new Array(steps).fill(0.0),
+                    isPressed: new Array(steps).fill(false)
+                }));
+
+                let stepPosition = Array.from({ length: steps }, (_, step) => parseFloat((step * StepSize).toFixed(2)));
+
+                initSampleCharts(Samples);
+                avgChart.data.labels = stepPosition;
+                avgChart.data.datasets[0].data = new Array(steps).fill(0);
+                avgChart.data.datasets[1].data = new Array(steps).fill(0);
+                avgChart.update();
+
+                appendLog('Status_TextBox', `Starting Stroke Test (${Samples} samples, ${steps} steps)...\n`);
+
+                const approachMargin = 0.5;
+                const ZOffset = capturedZ + approachMargin;
+                const XOffset = capturedX;
+
+                await writePrinter(`G90`);
+                await writePrinter(`G0 X${XOffset.toFixed(2)} Z${(ZOffset + 5.0).toFixed(2)}`);
+                await sleep(2500); 
+
+                let avgDown = new Array(steps).fill(0);
+                let avgUp = new Array(steps).fill(0);
+
+                for (let sample = 0; sample < Samples; sample++) {
+                    if (strokeCancelled) break;
+
+                    writeScale([0x02]); 
+                    await sleep(600);   
+
+                    await writePrinter(`G0 Z${ZOffset.toFixed(3)}`);
+                    await sleep(1500); 
+
+                    // Down Stroke
+                    for (let step = 0; step < steps; step++) {
+                        if (strokeCancelled) break;
+                        
+                        let targetPos = parseFloat((ZOffset - (step * StepSize)).toFixed(3));
+                        await writePrinter(`G0 Z${targetPos}`);
+                        await sleep(Math.ceil(1000 * StepSize) + 200); 
+
+                        writeScale([0x01]); 
+                        await sleep(150);   
+
+                        sampleData[sample].downForce[step] = force;
+                        sampleData[sample].isPressed[step] = (pinState === 0x02);
+
+                        downChart.data.datasets[sample].data.push({ x: stepPosition[step], y: force });
+                        downChart.update('none');
+
+                        let currentAvg = 0;
+                        for (let i = 0; i <= sample; i++) currentAvg += sampleData[i].downForce[step];
+                        avgDown[step] = currentAvg / (sample + 1);
+
+                        avgChart.data.datasets[0].data[step] = avgDown[step];
+                        avgChart.update('none');
+                    }
+
+                    if (strokeCancelled) break;
+
+                    // Up Stroke
+                    for (let step = steps - 1; step >= 0; step--) {
+                        if (strokeCancelled) break;
+                        
+                        let targetPos = parseFloat((ZOffset - (step * StepSize)).toFixed(3));
+                        await writePrinter(`G0 Z${targetPos}`);
+                        await sleep(Math.ceil(1000 * StepSize) + 200);
+
+                        writeScale([0x01]);
+                        await sleep(150);
+
+                        sampleData[sample].upForce[step] = force;
+
+                        upChart.data.datasets[sample].data.push({ x: stepPosition[step], y: force });
+                        upChart.update('none');
+
+                        let currentAvg = 0;
+                        for (let i = 0; i <= sample; i++) currentAvg += sampleData[i].upForce[step];
+                        avgUp[step] = currentAvg / (sample + 1);
+
+                        avgChart.data.datasets[1].data[step] = avgUp[step];
+                        avgChart.update('none');
+                    }
+
+                    await writePrinter(`G0 Z${(ZOffset + 5.0).toFixed(2)}`);
+                    await sleep(2000);
+                }
+
+                appendLog('Status_TextBox', 'Stroke test completed successfully.\n');
+
+                let csvText = "Position, DownForce, UpForce, PressedFraction\r\n";
+                for (let step = 0; step < steps; step++) {
+                    let pressedCount = sampleData.filter(s => s.isPressed[step]).length;
+                    let fraction = Samples > 0 ? pressedCount / Samples : 0.0;
+                    csvText += `${stepPosition[step]}, ${avgDown[step].toFixed(2)}, ${avgUp[step].toFixed(2)}, ${fraction.toFixed(2)}\r\n`;
+                }
+                document.getElementById('CSV_TextBox').value = csvText;
+
+            } catch (err) {
+                appendLog('Status_TextBox', `Stroke test error: ${err.message}\n`);
+            }
+        };
+
+        document.getElementById('CopyCSV_Button').onclick = () => {
+            navigator.clipboard.writeText(document.getElementById('CSV_TextBox').value);
+            alert('CSV copied to clipboard!');
+        };
+
+        document.getElementById('SaveCSV_Button').onclick = () => {
+            const blob = new Blob([document.getElementById('CSV_TextBox').value], { type: 'text/csv' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = 'switch_test_results.csv';
+            a.click();
+        };
+    </script>
+</body>
+</html>
